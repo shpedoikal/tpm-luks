@@ -1,0 +1,55 @@
+#!/bin/bash
+#
+# This script calculates a future PCR value. This is handy when you need to
+# seal a TPM key or NVRAM area to a PCR value that's not yet measured into
+# the TPM
+#
+# This script assumes the PCR contains zeroes at initialization and that files
+# will be measured in the order that they appear on the command line
+#
+# usage: $0 <file1> [file2 file3 ...]
+#
+# Author: Kent Yoder <yoder1@us.ibm.com>
+#
+function cleanup
+{
+	rm -f $OUTFILE
+}
+
+function ascii_to_bin
+{
+	ASCII=$1
+	OUT=$2
+	i=0
+
+	while test $i -lt ${#ASCII}; do
+		BYTE="\x${ASCII:${i}:2}"
+		echo -ne $BYTE >> $OUT
+		i=$(( $i + 2 ))
+	done
+}
+
+INTERMEDIATE_SHA1_ASCII=
+OUTFILE=$(mktemp /tmp/${0##*/}-XXXXXX)
+
+trap cleanup EXIT
+
+dd if=/dev/zero of=$OUTFILE bs=1 count=20 >/dev/null 2>&1
+
+FILE=$1
+
+while [ "x$FILE" != "x" ]; do
+	FILE_SHA1_ASCII=$(sha1sum $FILE | awk '{ print $1 }')
+	ascii_to_bin $FILE_SHA1_ASCII $OUTFILE
+
+	INTERMEDIATE_SHA1_ASCII=$(sha1sum $OUTFILE | awk '{ print $1 }')
+	rm -f $OUTFILE
+	ascii_to_bin $INTERMEDIATE_SHA1_ASCII $OUTFILE
+
+	shift
+	FILE=$1
+done
+
+echo $INTERMEDIATE_SHA1_ASCII
+
+exit 0

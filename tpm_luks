@@ -1,0 +1,272 @@
+#!/bin/bash
+#
+# package reqs: tpm-tools, trousers
+#
+# Author: Kent Yoder <yoder1@us.ibm.com>
+#
+CRYPTSETUP=/sbin/cryptsetup
+NV_INDEX_LIMIT=64
+PCRS=8
+
+#set -x
+function tpm_enabled
+{
+	if [ ! -e /sys/class/misc/tpm0/device/enabled ]; then
+		echo "Your TPM device driver doesn't appear to be loaded. Please run"
+		echo "\`modprobe tpm_tis\` to load the driver and re-run this script"
+		exit -1
+	fi
+
+	if [ ! /sys/class/misc/tpm0/device/enabled ]; then
+		echo "Your TPM is not enabled in your BIOS. Please halt the machine and"
+		echo "then cold boot into your BIOS to enable the TPM chip."
+		exit -1
+	fi
+
+	return 0
+}
+
+function tpm_owned
+{
+	if [ ! /sys/class/misc/tpm0/device/owned ]; then
+		echo "Your TPM is unowned, please take ownership:"
+		tpm_takeownership || exit -1
+	fi
+
+	return 0
+}
+
+function find_free_nv_index
+{
+	NV_INDEXES=$(tpm_nvinfo -n | awk '$1 ~ /0x/ {print $2}'|sed -e 's/(\(.*\))/\1/')
+
+	for i in ${NV_INDEXES}; do
+		if [ $i -gt ${NV_INDEX_LIMIT} ]; then
+			continue
+		fi
+
+		NV_INDEX=$i
+	done
+
+	echo "$(( $NV_INDEX + 1 ))"
+}
+
+function find_luks_device
+{
+	NUM_DEVS=$(blkid -t TYPE=crypto_LUKS|awk -F: '{print $1}'|wc -l)
+
+	if [ $NUM_DEVS -eq 0 ]; then
+		echo "Couldn't find a LUKS mount!"
+		exit -1
+	elif [ $NUM_DEVS -gt 1 ]; then
+		echo "Found more than one LUKS mount!"
+		exit -1
+	fi
+
+	echo "$(blkid -t TYPE=crypto_LUKS|awk -F: '{print $1}')"
+}
+
+#
+# nv_write <NV index> <tpm owner password> <new password for nv index>
+#
+function nv_write
+{
+	NVINDEX=${1}
+	DEVICE=${2}
+	OWNERPASS=${3}
+	NVPASS=${4}
+
+	TMPFS_MNT=$(mktemp -d /tmp/${0##*/}-XXXXXX)
+	mount -t tmpfs -o size=16K tmpfs ${TMPFS_MNT}
+	if [ $? -ne 0 ]; then
+		echo "Unable to mount tmpfs area"
+		exit -1
+	fi
+
+	# write the version bytes (version 0)
+	dd if=/dev/zero of=${TMPFS_MNT}/key bs=1c count=1 >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		echo "dd failed"
+		umount ${TMPFS_MNT}
+		exit -1
+	fi
+
+	# write a 32 byte symmetric key
+	dd if=/dev/urandom of=${TMPFS_MNT}/key bs=1c seek=1 count=32 >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		echo "dd failed"
+		umount ${TMPFS_MNT}
+		exit -1
+	fi
+
+	# checksum the data
+	#md5sum ${TMPFS_MNT}/key
+
+	tpm_nvdefine -i ${NVINDEX} -s 33 -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
+		-a ${NVPASS} -r ${PCRS} >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		umount ${TMPFS_MNT}
+		exit -1
+	fi
+
+	tpm_nvwrite -i ${NVINDEX} -s 33 -f ${TMPFS_MNT}/key --password=${NVPASS} >/dev/null 2>&1
+
+	# debug
+	#echo "DBG: data written:"
+	#od -t x1 ${TMPFS_MNT}/key
+
+	# copy out all but the version byte
+	dd if=${TMPFS_MNT}/key of=${TMPFS_MNT}/key.data bs=1c skip=1 count=32 >/dev/null 2>&1
+
+	$CRYPTSETUP luksAddKey $DEVICE --key-file ${TMPFS_MNT}/key.data
+
+	# zero the data we wrote to nvram (which includes the version byte) then rm it
+	dd if=/dev/zero of=${TMPFS_MNT}/key bs=33 count=1 >/dev/null 2>&1
+	rm -f ${TMPFS_MNT}/key
+
+	# zero the key file and umount tmpfs
+	dd if=/dev/zero of=${TMPFS_MNT}/key.data bs=32 count=1 >/dev/null 2>&1
+	umount ${TMPFS_MNT}
+}
+
+#
+# nv_retrieve <nv area password>
+#
+function nv_retrieve
+{
+	NVPASS=${1}
+	DEVICE=${2}
+	NAME=${3}
+	NVINDEX=1
+
+	TMPFS_MNT=$(mktemp -d /tmp/${0##*/}-XXXXXX)
+	mount -t tmpfs -o size=16K tmpfs ${TMPFS_MNT}
+	if [ $? -ne 0 ]; then
+		echo "Unable to mount tmpfs area"
+		exit -1
+	fi
+
+	while [ ${NVINDEX} -lt ${NV_INDEX_LIMIT} ]; do
+		tpm_nvread -i ${NVINDEX} -s 33 --password=${NVPASS} \
+			-f ${TMPFS_MNT}/data.tmp >/dev/null 2>&1
+		RC=$?
+		if [ ${RC} -ne 0 ]; then
+			NVINDEX=$(( $NVINDEX + 1 ))
+			echo "rc for tpm_nvread is ${RC}. Trying NV index ${NVINDEX}"
+			continue
+		fi
+
+		# version check
+		od -A n -N 1 -t x1 ${TMPFS_MNT}/data.tmp|grep -q 00
+		RC=$?
+		if [ ${RC} -ne 0 ]; then
+			echo "ignoring NV index ${NVINDEX} (wrong version)"
+			NVINDEX=$(( $NVINDEX + 1 ))
+			continue
+		fi
+
+		break
+	done
+
+	if [ ${NVINDEX} -eq ${NV_INDEX_LIMIT} ]; then
+		echo "Coulfn't find a TPM NVRAM index containing a usable key, falling back"
+		echo "to password-based LUKS device opening."
+		$CRYPTSETUP luksOpen -T1 ${DEVICE} ${NAME}
+	fi
+
+	# debug
+	#echo "DBG: data.tmp:"
+	#od -t x1 ${TMPFS_MNT}/data.tmp
+
+	# copy out all but the version byte
+	dd if=${TMPFS_MNT}/data.tmp of=${TMPFS_MNT}/data bs=1c skip=1 count=32 >/dev/null 2>&1
+	rm -f ${TMPFS_MNT}/data.tmp
+
+	# debug
+	#echo "DBG: data:"
+	#od -t x1 ${TMPFS_MNT}/data
+
+	#echo "${TMPFS_MNT}/data"
+	$CRYPTSETUP luksOpen ${DEVICE} ${NAME} --key-file ${TMPFS_MNT}/data --keyfile-size 32 --readonly
+	dd if=/dev/zero of=${TMPFS_MNT}/data bs=33 count=1 >/dev/null 2>&1
+	umount ${TMPFS_MNT}
+}
+
+function usage
+{
+	echo "usage ${0##*/}: [options]"
+	echo "options:"
+	echo -e "\tcreate [OWNERPASS] [NVPASS]\tcreate a new key, store it in TPM NVRAM and add it to LUKS"
+	echo -e "\tretrieve <device> <name>\t\tretrieve a secret from TPM NVRAM and use it to mount a LUKS device"
+}
+
+#
+# main()
+#
+if [ $(id -u) -ne 0 ];then
+	echo "You'll need to be root for this (uses tmpfs mount)"
+	exit -1
+fi
+
+OWNERPASS=
+NVPASS=
+ACTION=${1:??}
+shift
+
+if [ ${ACTION} == "create" ]; then
+	OWNERPASS=${1}
+	shift
+	NVPASS=${1}
+
+	tpm_enabled
+	tpm_owned
+
+	NV_INDEX=$(find_free_nv_index)
+	DEVICE=$(find_luks_device)
+
+	echo "Using NV index ${NV_INDEX} for device ${DEVICE}"
+
+	if [ ! -n "${OWNERPASS}" ]; then
+		read -s -p "Enter your TPM owner password: " OWNERPASS
+		echo
+	fi
+
+	if [ ! -n "${NVPASS}" ]; then
+		read -s -p "Enter your NV password: " NVPASS1
+		echo
+		read -s -p "Re-enter your NV password: " NVPASS2
+		echo
+
+		if [ "${NVPASS1}" != "${NVPASS2}" ]; then
+			echo "NV passwords don't match!"
+			exit -1
+		fi
+
+		NVPASS=${NVPASS1}
+	fi
+
+	nv_write ${NV_INDEX} ${DEVICE} ${OWNERPASS} ${NVPASS}
+elif [ ${ACTION} == "retrieve" ]; then
+	NVPASS=
+	DEVICE=${1}
+	NAME=${2}
+
+	if [ ! -n "${NVPASS}" ]; then
+		read -s -p "Enter your TPM NVRAM password: " NVPASS
+		echo
+	fi
+
+	nv_retrieve ${NVPASS} ${DEVICE} ${NAME}
+else
+	usage
+	exit 1
+fi
+
+exit 0
+
+
+
+
+exit 0
+
+
