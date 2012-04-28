@@ -5,8 +5,7 @@
 # Author: Kent Yoder <yoder1@us.ibm.com>
 #
 CRYPTSETUP=/sbin/cryptsetup
-NV_INDEX_LIMIT=64
-PCRS=8
+NV_INDEX_LIMIT=8
 
 #set -x
 function tpm_enabled
@@ -75,6 +74,7 @@ function nv_write
 	DEVICE=${2}
 	OWNERPASS=${3}
 	NVPASS=${4}
+	PERMSFILE=${5}
 
 	TMPFS_MNT=$(mktemp -d /tmp/${0##*/}-XXXXXX)
 	mount -t tmpfs -o size=16K tmpfs ${TMPFS_MNT}
@@ -99,17 +99,24 @@ function nv_write
 		exit -1
 	fi
 
-	# checksum the data
-	#md5sum ${TMPFS_MNT}/key
+	if [ -n "${PERMSFILE}" ]; then
+		tpm_nvdefine -i ${NVINDEX} -s 33 -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
+			-a ${NVPASS} -f ${PERMSFILE}
+	else
+		tpm_nvdefine -i ${NVINDEX} -s 33 -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
+			-a ${NVPASS}
+	fi
 
-	tpm_nvdefine -i ${NVINDEX} -s 33 -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
-		-a ${NVPASS} -r ${PCRS} >/dev/null 2>&1
 	if [ $? -ne 0 ]; then
 		umount ${TMPFS_MNT}
 		exit -1
 	fi
 
-	tpm_nvwrite -i ${NVINDEX} -s 33 -f ${TMPFS_MNT}/key --password=${NVPASS} >/dev/null 2>&1
+	tpm_nvwrite -i ${NVINDEX} -s 33 -f ${TMPFS_MNT}/key --password=${NVPASS}
+	if [ $? -ne 0 ]; then
+		umount ${TMPFS_MNT}
+		exit -1
+	fi
 
 	# debug
 	#echo "DBG: data written:"
@@ -118,7 +125,14 @@ function nv_write
 	# copy out all but the version byte
 	dd if=${TMPFS_MNT}/key of=${TMPFS_MNT}/key.data bs=1c skip=1 count=32 >/dev/null 2>&1
 
-	$CRYPTSETUP luksAddKey $DEVICE --key-file ${TMPFS_MNT}/key.data
+	echo "You will now be prompted to enter any valid LUKS passphrase in order to store"
+	echo "the new TPM NVRAM secret in a LUKS key slot:"
+	$CRYPTSETUP luksAddKey $DEVICE ${TMPFS_MNT}/key.data
+	if [ $? -ne 0 ]; then
+		tpm_nvrelease -i ${NVINDEX} -s 33 --pwdo=${OWNERPASS}
+		umount ${TMPFS_MNT}
+		exit -1
+	fi
 
 	# zero the data we wrote to nvram (which includes the version byte) then rm it
 	dd if=/dev/zero of=${TMPFS_MNT}/key bs=33 count=1 >/dev/null 2>&1
@@ -196,7 +210,7 @@ function usage
 {
 	echo "usage ${0##*/}: [options]"
 	echo "options:"
-	echo -e "\tcreate [OWNERPASS] [NVPASS]\tcreate a new key, store it in TPM NVRAM and add it to LUKS"
+	echo -e "\tcreate [NVPERMSFILE]\tcreate a new key, store it in TPM NVRAM and add it to LUKS"
 	echo -e "\tretrieve <device> <name>\t\tretrieve a secret from TPM NVRAM and use it to mount a LUKS device"
 }
 
@@ -211,12 +225,18 @@ fi
 OWNERPASS=
 NVPASS=
 ACTION=${1:??}
-shift
 
 if [ ${ACTION} == "create" ]; then
-	OWNERPASS=${1}
-	shift
-	NVPASS=${1}
+	PERMSFILE=${2}
+	OWNERPASS=
+	NVPASS=
+
+	if [ -n "${PERMSFILE}" ]; then
+		if [ ! -e "${PERMSFILE}" ]; then
+			echo "Error: couldn't open ${PERMSFILE} for reading."
+			exit -1
+		fi
+	fi
 
 	tpm_enabled
 	tpm_owned
@@ -232,9 +252,9 @@ if [ ${ACTION} == "create" ]; then
 	fi
 
 	if [ ! -n "${NVPASS}" ]; then
-		read -s -p "Enter your NV password: " NVPASS1
+		read -s -p "Enter your new TPM NV area password: " NVPASS1
 		echo
-		read -s -p "Re-enter your NV password: " NVPASS2
+		read -s -p "Re-enter your new TPM NV area password: " NVPASS2
 		echo
 
 		if [ "${NVPASS1}" != "${NVPASS2}" ]; then
@@ -245,7 +265,7 @@ if [ ${ACTION} == "create" ]; then
 		NVPASS=${NVPASS1}
 	fi
 
-	nv_write ${NV_INDEX} ${DEVICE} ${OWNERPASS} ${NVPASS}
+	nv_write ${NV_INDEX} ${DEVICE} ${OWNERPASS} ${NVPASS} ${PERMSFILE}
 elif [ ${ACTION} == "retrieve" ]; then
 	NVPASS=
 	DEVICE=${1}
