@@ -121,9 +121,18 @@ function nv_write
 	# copy out all but the version byte
 	dd if=${TMPFS_MNT}/key of=${TMPFS_MNT}/key.data bs=1c skip=1 count=32 >/dev/null 2>&1
 
+	SLOTID=0
+	for S in $(cryptsetup luksDump /dev/loop1| awk '$1$2 ~ /KeySlot/ {print $4}'); do
+		if [ "${S}" == "DISABLED" ]; then
+			KEY_SLOT=${SLOTID}
+			break
+		fi
+		SLOTID=$(( ${SLOTID} + 1 ))
+	done
+
 	echo "You will now be prompted to enter any valid LUKS passphrase in order to store"
-	echo "the new TPM NVRAM secret in a LUKS key slot:"
-	$CRYPTSETUP luksAddKey $DEVICE ${TMPFS_MNT}/key.data
+	echo "the new TPM NVRAM secret in LUKS key slot ${KEY_SLOT}:"
+	$CRYPTSETUP luksAddKey --key-slot ${KEY_SLOT} $DEVICE ${TMPFS_MNT}/key.data
 	if [ $? -ne 0 ]; then
 		tpm_nvrelease -i ${NVINDEX} -s 33 --pwdo=${OWNERPASS}
 		umount ${TMPFS_MNT}
@@ -196,13 +205,15 @@ function nv_retrieve
 
 function usage
 {
-	echo "usage ${0##*/}: [options]"
+	echo "usage ${0##*/}: [-c|-r] [options]"
 	echo "options:"
-	echo -e "\t-c [NVPERMSFILE]\tcreate a new key, store it in TPM NVRAM and add it to a LUKS keyslot"
-	echo -e "\t-r <device> <name>\tretrieve a secret from TPM NVRAM and use it to mount a LUKS device"
-	echo -e "\t-d\t\t\tre-use the same password for each NVRAM area (only prompt once)"
-	echo -e "\t-s <keyslot>\t\tuse the specified LUKS key slot (view free slots with 'cryptsetup "
-	echo -e "\t            \t\t luksDump <device>')"
+	echo -e "  -c [NVPERMSFILE]\tcreate a new key, store it in TPM NVRAM and add it to a LUKS keyslot"
+	echo -e "  -r <name>\t\tretrieve a secret from TPM NVRAM and use it to mount a LUKS device"
+	echo -e "  -d\t\t\tre-use the same password for each NVRAM area (only prompt once)"
+	echo -e "  -s <keyslot>\t\tuse the specified LUKS key slot (view free slots with 'cryptsetup "
+	echo -e "              \t\t luksDump <device>')"
+	echo -e "  -i <index>\t\tuse the specified TPM NVRAM index (view indexes with tpm_nvinfo)"
+	echo -e "  -d <device>\t\tuse the specified LUKS device (print with 'blkid -t TYPE=crypt_LUKS')"
 }
 
 #
@@ -216,9 +227,10 @@ fi
 SAME_AUTH=0
 OWNERPASS=
 NVPASS=
+NVINDEX=
 ACTION="xxx"
 
-while getopts "c:r:sd" opt; do
+while getopts "c:r:sd:q" opt; do
 	case $opt in
 		c)
 			ACTION="create"
@@ -226,14 +238,18 @@ while getopts "c:r:sd" opt; do
 			;;
 		r)
 			ACTION="retrieve"
-			DEVICE=${OPTARG}
-			shift
 			NAME=${OPTARG}
 			;;
 		s)
-
+			KEY_SLOT=${OPTARG}
+			;;
+		i)
+			NVINDEX=${OPTARG}
 			;;
 		d)
+			DEVICE=${OPTARG}
+			;;
+		q)
 			SAME_AUTH=1
 			;;
 		*)
@@ -262,8 +278,13 @@ if [ "${ACTION}" == "create" ]; then
 		echo
 	fi
 
+	# we can't seal multiple scerets in a single NV index
+	if [ -n "${NVINDEX}"  -a $(cat ${DEVICES}|wc -w) -ne 1 ]; then
+		echo "Multiple LUKS devices found, please pick one"
+		exit 2
+	fi
 
-	for DEVICE in $DEVICES; do
+	for DEVICE in ${DEVICES}; do
 		NV_INDEX=$(find_free_nv_index)
 
 		echo "Using NV index ${NV_INDEX} for device ${DEVICE}"
