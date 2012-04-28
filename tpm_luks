@@ -118,10 +118,6 @@ function nv_write
 		exit -1
 	fi
 
-	# debug
-	#echo "DBG: data written:"
-	#od -t x1 ${TMPFS_MNT}/key
-
 	# copy out all but the version byte
 	dd if=${TMPFS_MNT}/key of=${TMPFS_MNT}/key.data bs=1c skip=1 count=32 >/dev/null 2>&1
 
@@ -183,22 +179,14 @@ function nv_retrieve
 	done
 
 	if [ ${NVINDEX} -eq ${NV_INDEX_LIMIT} ]; then
-		echo "Coulfn't find a TPM NVRAM index containing a usable key, falling back"
+		echo "Couldn't find a TPM NVRAM index containing a usable key, falling back"
 		echo "to password-based LUKS device opening."
 		$CRYPTSETUP luksOpen -T1 ${DEVICE} ${NAME}
 	fi
 
-	# debug
-	#echo "DBG: data.tmp:"
-	#od -t x1 ${TMPFS_MNT}/data.tmp
-
 	# copy out all but the version byte
 	dd if=${TMPFS_MNT}/data.tmp of=${TMPFS_MNT}/data bs=1c skip=1 count=32 >/dev/null 2>&1
 	rm -f ${TMPFS_MNT}/data.tmp
-
-	# debug
-	#echo "DBG: data:"
-	#od -t x1 ${TMPFS_MNT}/data
 
 	#echo "${TMPFS_MNT}/data"
 	$CRYPTSETUP luksOpen ${DEVICE} ${NAME} --key-file ${TMPFS_MNT}/data --keyfile-size 32 --readonly
@@ -210,8 +198,11 @@ function usage
 {
 	echo "usage ${0##*/}: [options]"
 	echo "options:"
-	echo -e "\tcreate [NVPERMSFILE]\tcreate a new key, store it in TPM NVRAM and add it to LUKS"
-	echo -e "\tretrieve <device> <name>\t\tretrieve a secret from TPM NVRAM and use it to mount a LUKS device"
+	echo -e "\t-c [NVPERMSFILE]\tcreate a new key, store it in TPM NVRAM and add it to a LUKS keyslot"
+	echo -e "\t-r <device> <name>\tretrieve a secret from TPM NVRAM and use it to mount a LUKS device"
+	echo -e "\t-d\t\t\tre-use the same password for each NVRAM area (only prompt once)"
+	echo -e "\t-s <keyslot>\t\tuse the specified LUKS key slot (view free slots with 'cryptsetup "
+	echo -e "\t            \t\t luksDump <device>')"
 }
 
 #
@@ -222,14 +213,37 @@ if [ $(id -u) -ne 0 ];then
 	exit -1
 fi
 
+SAME_AUTH=0
 OWNERPASS=
 NVPASS=
-ACTION=${1:??}
+ACTION="xxx"
 
-if [ ${ACTION} == "create" ]; then
-	PERMSFILE=${2}
+while getopts "c:r:sd" opt; do
+	case $opt in
+		c)
+			ACTION="create"
+			PERMSFILE=${OPTARG}
+			;;
+		r)
+			ACTION="retrieve"
+			DEVICE=${OPTARG}
+			shift
+			NAME=${OPTARG}
+			;;
+		s)
+
+			;;
+		d)
+			SAME_AUTH=1
+			;;
+		*)
+			usage
+			;;
+	esac
+done
+
+if [ "${ACTION}" == "create" ]; then
 	OWNERPASS=
-	NVPASS=
 
 	if [ -n "${PERMSFILE}" ]; then
 		if [ ! -e "${PERMSFILE}" ]; then
@@ -241,32 +255,34 @@ if [ ${ACTION} == "create" ]; then
 	tpm_enabled
 	tpm_owned
 
-	NV_INDEX=$(find_free_nv_index)
-	DEVICE=$(find_luks_device)
-
-	echo "Using NV index ${NV_INDEX} for device ${DEVICE}"
+	DEVICES=$(find_luks_device)
 
 	if [ ! -n "${OWNERPASS}" ]; then
 		read -s -p "Enter your TPM owner password: " OWNERPASS
 		echo
 	fi
 
-	if [ ! -n "${NVPASS}" ]; then
-		read -s -p "Enter your new TPM NV area password: " NVPASS1
-		echo
-		read -s -p "Re-enter your new TPM NV area password: " NVPASS2
-		echo
 
-		if [ "${NVPASS1}" != "${NVPASS2}" ]; then
-			echo "NV passwords don't match!"
-			exit -1
+	for DEVICE in $DEVICES; do
+		NV_INDEX=$(find_free_nv_index)
+
+		echo "Using NV index ${NV_INDEX} for device ${DEVICE}"
+
+		if [ ! -n "NVPASS1" -o ${SAME_AUTH} -eq 0 ]; then
+			read -s -p "Enter a TPM NV area password for ${DEVICE}: " NVPASS1
+			echo
+			read -s -p "Re-enter a TPM NV area password for ${DEVICE}: " NVPASS2
+			echo
+
+			if [ "${NVPASS1}" != "${NVPASS2}" ]; then
+				echo "NV passwords don't match!"
+				exit -1
+			fi
 		fi
 
-		NVPASS=${NVPASS1}
-	fi
-
-	nv_write ${NV_INDEX} ${DEVICE} ${OWNERPASS} ${NVPASS} ${PERMSFILE}
-elif [ ${ACTION} == "retrieve" ]; then
+		nv_write ${NV_INDEX} ${DEVICE} ${OWNERPASS} ${NVPASS1} ${PERMSFILE}
+	done
+elif [ "${ACTION}" == "retrieve" ]; then
 	NVPASS=
 	DEVICE=${1}
 	NAME=${2}
@@ -283,10 +299,3 @@ else
 fi
 
 exit 0
-
-
-
-
-exit 0
-
-
