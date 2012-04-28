@@ -207,13 +207,18 @@ function usage
 {
 	echo "usage ${0##*/}: [-c|-r] [options]"
 	echo "options:"
-	echo -e "  -c [NVPERMSFILE]\tcreate a new key, store it in TPM NVRAM and add it to a LUKS keyslot"
-	echo -e "  -r <name>\t\tretrieve a secret from TPM NVRAM and use it to mount a LUKS device"
-	echo -e "  -d\t\t\tre-use the same password for each NVRAM area (only prompt once)"
-	echo -e "  -s <keyslot>\t\tuse the specified LUKS key slot (view free slots with 'cryptsetup "
-	echo -e "              \t\t luksDump <device>')"
-	echo -e "  -i <index>\t\tuse the specified TPM NVRAM index (view indexes with tpm_nvinfo)"
-	echo -e "  -d <device>\t\tuse the specified LUKS device (print with 'blkid -t TYPE=crypt_LUKS')"
+	echo -e "  -c [NVPERMSFILE]  create a new key, store it in TPM NVRAM and add it to a"
+	echo -e	"                     LUKS keyslot"
+	echo -e "  -r <name>         retrieve a secret from TPM NVRAM and use it to open a "
+	echo -e	"                     LUKS device"
+	echo -e "  -d                re-use the same password for each NVRAM area (only prompt"
+	echo -e	"                     once)"
+	echo -e "  -s <keyslot>      use the specified LUKS key slot (view free slots with "
+	echo -e	"                     'cryptsetup luksDump <device>')"
+	echo -e "  -i <index>        use the specified TPM NVRAM index (view indexes with "
+	echo -e	"                     tpm_nvinfo)"
+	echo -e "  -d <device>       use the specified LUKS device (print with "
+	echo -e	"                     'blkid -t TYPE=crypto_LUKS')"
 }
 
 #
