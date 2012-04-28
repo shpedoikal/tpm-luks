@@ -1,16 +1,30 @@
 #!/bin/bash
 #
-# This script calculates a future PCR value. This is handy when you need to
+# This script calculates a TPM PCR value. This is handy when you need to
 # seal a TPM key or NVRAM area to a PCR value that's not yet measured into
-# the TPM
+# the TPM.
 #
-# This script assumes the PCR contains zeroes at initialization and that files
-# will be measured in the order that they appear on the command line
-#
-# usage: $0 <file1> [file2 file3 ...]
+# This script defaults to an initial state of 20 bytes of zeroes and that files
+# will be hashed in the order that they appear on the command line
 #
 # Author: Kent Yoder <yoder1@us.ibm.com>
 #
+#set -x
+
+function usage
+{
+	echo -e "usage: ${0##*/} [options] <file1> ... <fileN>"
+	echo -e " options:"
+	echo -e "  -s <hash state>  use <hash state> as the initial hash state. This should be"
+	echo -e "                    ascii, which will be converted to binary. The default"
+	echo -e "                    hash state is 20 bytes of zeros"
+	echo -e "  -f <file>        use <file> as the initial hash state. The file will not be"
+	echo -e "                    modified unless it is the same passed as the -o option"
+	echo -e "  -o <file>        use <file> as the output file. When the script terminates"
+	echo -e "                    <file> will contain the binary representation of the final"
+	echo -e "                    hash which allows you to chain calls to this script together"
+}
+
 function cleanup
 {
 	rm -f $OUTFILE
@@ -29,16 +43,64 @@ function ascii_to_bin
 	done
 }
 
+INIT_STATE=
 INTERMEDIATE_SHA1_ASCII=
-OUTFILE=$(mktemp /tmp/${0##*/}-XXXXXX)
+OUT_FILE=
 
-trap cleanup EXIT
+while getopts "s:f:o:" opt; do
+	case $opt in
+	o)
+		OUT_FILE=${OPTARG}
+		;;
+	f)
+		STATE_FILE=${OPTARG}
+		if [ -n "${INIT_STATE}" ]; then
+			echo "-s and -f are mututally exclusive options"
+			exit -1
+		fi
+		;;
+	s)
+		INIT_STATE=${OPTARG}
+		if [ -n "${STATE_FILE}" ]; then
+			echo "-s and -f are mututally exclusive options"
+			exit -1
+		fi
+		;;
+	*)
+		usage
+		;;
+	esac
+done
 
-dd if=/dev/zero of=$OUTFILE bs=1 count=20 >/dev/null 2>&1
+shift $(($OPTIND - 1))
+
+if [ ! -n "${OUT_FILE}" ]; then
+	OUTFILE=$(mktemp /tmp/${0##*/}-XXXXXX)
+	trap cleanup EXIT
+else
+	OUTFILE=${OUT_FILE}
+fi
+
+if [ ! -n "${INIT_STATE}" ] ; then
+	INIT_STATE="0000000000000000000000000000000000000000"
+fi
+
+# if we're not using an initial state from file, put the initial state
+# there manually
+if [ ! -n "${STATE_FILE}" ]; then
+	ascii_to_bin ${INIT_STATE} ${OUTFILE}
+elif [ "${STATE_FILE}" != "${OUTFILE}" ]; then
+	cp ${STATE_FILE} ${OUTFILE}
+fi
 
 FILE=$1
 
 while [ "x$FILE" != "x" ]; do
+	if [ ! -e "${FILE}" ]; then
+		echo "File ${FILE} does not exist"
+		exit -1
+	fi
+
 	FILE_SHA1_ASCII=$(sha1sum $FILE | awk '{ print $1 }')
 	ascii_to_bin $FILE_SHA1_ASCII $OUTFILE
 
