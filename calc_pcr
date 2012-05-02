@@ -23,6 +23,8 @@ function usage
 	echo -e "  -o <file>        use <file> as the output file. When the script terminates"
 	echo -e "                    <file> will contain the binary representation of the final"
 	echo -e "                    hash which allows you to chain calls to this script together"
+	echo -e "  -h <hash1..N>    use a list of ascii hash values in the calculation instead of"
+	echo -e "                    files. Useful for parsing /sys/kernel/security/tpm0/*"
 }
 
 function cleanup
@@ -46,9 +48,13 @@ function ascii_to_bin
 INIT_STATE=
 INTERMEDIATE_SHA1_ASCII=
 OUT_FILE=
+HASH_MODE=0
 
-while getopts "s:f:o:" opt; do
+while getopts "hs:f:o:" opt; do
 	case $opt in
+	h)
+		HASH_MODE=1
+		;;
 	o)
 		OUT_FILE=${OPTARG}
 		;;
@@ -68,6 +74,7 @@ while getopts "s:f:o:" opt; do
 		;;
 	*)
 		usage
+		exit -1
 		;;
 	esac
 done
@@ -95,13 +102,23 @@ fi
 
 FILE=$1
 
+if [ "x${FILE}" == "x" ]; then
+	usage
+	exit -1
+fi
+
 while [ "x$FILE" != "x" ]; do
-	if [ ! -e "${FILE}" ]; then
-		echo "File ${FILE} does not exist"
-		exit -1
+	if [ ${HASH_MODE} -eq 1 ]; then
+		FILE_SHA1_ASCII=$FILE
+	else
+		if [ ! -e "${FILE}" ]; then
+			echo "File ${FILE} does not exist"
+			exit -1
+		fi
+
+		FILE_SHA1_ASCII=$(sha1sum $FILE | awk '{ print $1 }')
 	fi
 
-	FILE_SHA1_ASCII=$(sha1sum $FILE | awk '{ print $1 }')
 	ascii_to_bin $FILE_SHA1_ASCII $OUTFILE
 
 	INTERMEDIATE_SHA1_ASCII=$(sha1sum $OUTFILE | awk '{ print $1 }')
