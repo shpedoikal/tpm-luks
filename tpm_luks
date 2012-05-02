@@ -10,6 +10,61 @@ TPM_LUKS_NVRAM_SIZE=33
 
 set -e
 set -x
+
+TEMP_MNT=
+SCRIPT_RC=0
+OWNERPASS=
+NVPASS=
+
+function get_nv_password
+{
+	if [ ! -n "${NVPASS}" ]; then
+		read -s -p "Enter your current TPM NVRAM password: " NVPASS || exit -1
+		echo
+	fi
+}
+
+function get_owner_password
+{
+	if [ ! -n "${OWNERPASS}" ]; then
+		read -s -p "Enter your TPM owner password: " OWNERPASS || exit -1
+		echo
+	fi
+}
+
+function exit_hook
+{
+	umount $TEMP_MNT
+}
+
+function wipe_file
+{
+	dd if=/dev/zero of=${1} bs=1 count=33 >/dev/null 2>&1
+	rm -f ${1}
+}
+
+function create_tmpfs_mount
+{
+	test -n "$TEMP_MNT" && echo "BUG IN SCRIPT MULTIPLE TEMP MOUNTS" && exit -1
+
+	TEMP_MNT=$(mktemp -q -d /tmp/${0##*/}-XXXXXX)
+	if [ -n "$TEMP_MNT" ]; then
+		mount -t tmpfs -o size=16K tmpfs ${TEMP_MNT}
+
+		if [ $? -eq 0 ]; then
+			trap exit_hook EXIT
+		else
+			# let the output from mount tell the user what happened
+			exit -1
+		fi
+	else
+		echo "Failed to create temp mount point for tmpfs"
+		exit -1
+	fi
+
+	echo "$TEMP_MNT"
+}
+
 function tpm_enabled
 {
 	if [ ! -e /sys/class/misc/tpm0/device/enabled ]; then
@@ -43,19 +98,10 @@ function tpm_owned
 #
 function find_luks_nv_indexes
 {
-	TMP_NVINFO=$(mktemp /tmp/${0##*/}-XXXXXX)
-	tpm_nvinfo >${TMP_NVINFO}
+	NV_SIZES=( $(tpm_nvinfo | awk '$1 ~ /Size/ { print $3 }') )
+	NV_INDEXES=( $(tpm_nvinfo | awk '$1$2 ~ /NVRAMindex/ { print $4 }') )
+	NUM_INDEXES=$(( ${#NV_INDEXES} - 1 ))
 
-	if [ $? -ne 0 ]; then
-		rm -f ${TMP_NVINFO}
-		exit -1
-	fi
-
-	NV_SIZES=( $(cat ${TMP_NVINFO} | awk '$1 ~ /Size/ { print $3 }') )
-	NV_INDEXES=( $(cat ${TMP_NVINFO} | awk '$1$2 ~ /NVRAMindex/ { print $4 }') )
-	NUM_INDEXES=$(cat ${TMP_NVINFO} | awk '$1$2 ~ /NVRAMindex/ { print $4 }' | wc -l)
-
-	NUM_INDEXES=$(( $NUM_INDEXES - 1 ))
 	for i in $(seq 0 ${NUM_INDEXES}); do
 		#echo "DBG: ${NV_SIZES[$i]}"
 		#echo "DBG: ${NV_INDEXES[$i]}"
@@ -64,14 +110,12 @@ function find_luks_nv_indexes
 			echo -n "${NV_INDEXES[$i]} "
 		fi
 	done
-
-	rm -f ${TMP_NVINFO}
 }
 
 
 function find_free_nv_index
 {
-	NV_INDEXES=$(tpm_nvinfo -n | awk '$1 ~ /0x/ {print $2}'|sed -e 's/(\(.*\))/\1/')
+	NV_INDEXES=$(tpm_nvinfo | awk '$1$2 ~ /NVRAMindex/ { print $4 }')
 
 	for i in ${NV_INDEXES}; do
 		if [ $i -gt ${NV_INDEX_LIMIT} ]; then
@@ -90,41 +134,35 @@ function find_luks_device
 
 	if [ $NUM_DEVS -eq 0 ]; then
 		echo "Couldn't find a LUKS mount!"
-		return -1
-	elif [ $NUM_DEVS -ne 1 ]; then
-		echo "More than one LUKS device found, please specify a device with -d"
-		return -1
+		exit -1
+	elif [ $NUM_DEVS -gt 1 ]; then
+		echo "Found more than one LUKS mount, use -d option"
+		exit -1
 	fi
 
 	echo "$(blkid -t TYPE=crypto_LUKS|awk -F: '{print $1}')"
 }
 
+#
+# keyfile_generate - create a tmpfs mount and write a key with version info
+#		     into a file named "key" on that mount
+#
 function keyfile_generate
 {
-	TMPFS_MNT=$(mktemp -d /tmp/${0##*/}-XXXXXX)
-	mount -t tmpfs -o size=16K tmpfs ${TMPFS_MNT}
-	if [ $? -ne 0 ]; then
-		echo "Unable to mount tmpfs area"
-		exit -1
-	fi
+	TMPFS_MNT=$(create_tmpfs_mount)
 
 	# write the version bytes (version 0)
-	dd if=/dev/zero of=${TMPFS_MNT}/key bs=1c count=1 >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		echo "dd failed"
-		umount ${TMPFS_MNT}
-		exit -1
-	fi
+	test $? -eq 0 && \
+		dd if=/dev/zero of=${TMPFS_MNT}/key bs=1c count=1 >/dev/null 2>&1
 
 	# write a 32 byte symmetric key
-	dd if=/dev/urandom of=${TMPFS_MNT}/key bs=1c seek=1 count=32 >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		echo "dd failed"
-		umount ${TMPFS_MNT}
-		exit -1
-	fi
+	test $? -eq 0 && \
+		dd if=/dev/urandom of=${TMPFS_MNT}/key bs=1c seek=1 count=32 >/dev/null 2>&1
 
-	echo "${TMPFS_MNT}/key"
+	test $? -eq 0 && \
+		echo "${TMPFS_MNT}/key"
+
+	return $?
 }
 
 function nv_define_and_write
@@ -143,81 +181,24 @@ function nv_define_and_write
 			-a ${NVPASS}
 	fi
 
-	if [ $? -ne 0 ]; then
-		return -1
-	fi
+	test $? -ne 0 && \
+		exit -1
 
 	tpm_nvwrite -i ${NVINDEX} -s 33 -f ${DATAFILE} --password=${NVPASS}
 	if [ $? -ne 0 ]; then
+		tpm_nvrelease -i ${NVINDEX} --pwdo=${OWNERPASS}
 		exit -1
 	fi
 }
 
 #
-# nv_write
+# luks_add_key
 #
-function nv_write
+function luks_add_key
 {
-	NVINDEX=${1}
+	TMPFS_KEYFILE=${1}
 	DEVICE=${2}
-	OWNERPASS=${3}
-	NVPASS=${4}
-	PERMSFILE=${5}
 	KEY_SLOT=0
-
-#	TMPFS_MNT=$(mktemp -d /tmp/${0##*/}-XXXXXX)
-#	mount -t tmpfs -o size=16K tmpfs ${TMPFS_MNT}
-#	if [ $? -ne 0 ]; then
-#		echo "Unable to mount tmpfs area"
-#		exit -1
-#	fi
-#
-#	# write the version bytes (version 0)
-#	dd if=/dev/zero of=${TMPFS_MNT}/key bs=1c count=1 >/dev/null 2>&1
-#	if [ $? -ne 0 ]; then
-#		echo "dd failed"
-#		umount ${TMPFS_MNT}
-#		exit -1
-#	fi
-#
-#	# write a 32 byte symmetric key
-#	dd if=/dev/urandom of=${TMPFS_MNT}/key bs=1c seek=1 count=32 >/dev/null 2>&1
-#	if [ $? -ne 0 ]; then
-#		echo "dd failed"
-#		umount ${TMPFS_MNT}
-#		exit -1
-#	fi
-
-	TMPFS_KEYFILE=$(keyfile_generate)
-	TMPFS_MNT=${TMPFS_KEYFILE%/*}
-
-#	if [ -n "${PERMSFILE}" ]; then
-#		tpm_nvdefine -i ${NVINDEX} -s 33 -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
-#			-a ${NVPASS} -f ${PERMSFILE}
-#	else
-#		tpm_nvdefine -i ${NVINDEX} -s 33 -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
-#			-a ${NVPASS}
-#	fi
-#
-#	if [ $? -ne 0 ]; then
-#		umount ${TMPFS_MNT}
-#		exit -1
-#	fi
-#
-#	tpm_nvwrite -i ${NVINDEX} -s 33 -f ${TMPFS_KEYFILE} --password=${NVPASS}
-#	if [ $? -ne 0 ]; then
-#		umount ${TMPFS_MNT}
-#		exit -1
-#	fi
-
-	nv_define_and_write ${OWNERPASS} ${NVPASS} ${TMPFS_KEYFILE} ${NVINDEX} ${PERMSFILE}
-	if [ $? -ne 0 ]; then
-		umount ${TMPFS_MNT}
-		exit -1
-	fi
-
-	# copy out all but the version byte
-	dd if=${TMPFS_KEYFILE} of=${TMPFS_KEYFILE}.data bs=1c skip=1 count=32 >/dev/null 2>&1
 
 	SLOTID=0
 	for S in $(cryptsetup luksDump ${DEVICE} | awk '$1$2 ~ /KeySlot/ {print $4}'); do
@@ -232,19 +213,7 @@ function nv_write
 	echo "the new TPM NVRAM secret in LUKS key slot ${KEY_SLOT}:\n"
 
 	$CRYPTSETUP luksAddKey --key-slot ${KEY_SLOT} $DEVICE ${TMPFS_KEYFILE}.data
-	if [ $? -ne 0 ]; then
-		tpm_nvrelease -i ${NVINDEX} -s 33 --pwdo=${OWNERPASS}
-		umount ${TMPFS_MNT}
-		exit -1
-	fi
-
-	# zero the data we wrote to nvram (which includes the version byte) then rm it
-	dd if=/dev/zero of=${TMPFS_KEYFILE} bs=33 count=1 >/dev/null 2>&1
-	rm -f ${TMPFS_KEYFILE}
-
-	# zero the key file and umount tmpfs
-	dd if=/dev/zero of=${TMPFS_KEYFILE}.data bs=32 count=1 >/dev/null 2>&1
-	umount ${TMPFS_MNT}
+	SCRIPT_RC=$?
 }
 
 #
@@ -255,29 +224,27 @@ function nv_get
 	NVPASS=${1}
 	NV_INDEXES=( $(find_luks_nv_indexes) )
 
-	TMPFS_MNT=$(mktemp -d /tmp/${0##*/}-XXXXXX)
-	mount -t tmpfs -o size=16K tmpfs ${TMPFS_MNT}
-	if [ $? -ne 0 ]; then
-		echo "Unable to mount tmpfs area"
+	if [ ${#NV_INDEXES} -eq 0 ]; then
+		echo "Found 0 NVRAM indexes readable by this script"
 		exit -1
 	fi
+
+	TMPFS_MNT=$(create_tmpfs_mount)
+	test $? -ne 0 && \
+		exit -1
 
 	for i in ${NV_INDEXES[*]}; do
 		tpm_nvread -i $i -s 33 --password=${NVPASS} -f ${TMPFS_MNT}/data.tmp \
 			>/dev/null 2>&1
-		RC=$?
-		if [ ${RC} -ne 0 ]; then
-			#echo "rc for tpm_nvread is ${RC} (ignoring). "
+
+		test $? -ne 0 &&
 			continue
-		fi
 
 		# version check
 		od -A n -N 1 -t x1 ${TMPFS_MNT}/data.tmp | grep -q 00
-		RC=$?
-		if [ ${RC} -ne 0 ]; then
-			#echo "ignoring NV index ${NVINDEX} (wrong version)"
+
+		test $? -ne 0 && \
 			continue
-		fi
 
 		break
 	done
@@ -287,64 +254,23 @@ function nv_get
 
 function luks_open
 {
-#
-# nv_retrieve
-#
-#function nv_retrieve
-#{
-#	NVPASS=${1}
-#	DEVICE=${2}
-#	NAME=${3}
-#	NVINDEX=1
-#
-#	TMPFS_MNT=$(mktemp -d /tmp/${0##*/}-XXXXXX)
-#	mount -t tmpfs -o size=16K tmpfs ${TMPFS_MNT}
-#	if [ $? -ne 0 ]; then
-#		echo "Unable to mount tmpfs area"
-#		exit -1
-#	fi
-#
-#	while [ ${NVINDEX} -lt ${NV_INDEX_LIMIT} ]; do
-#		tpm_nvread -i ${NVINDEX} -s 33 --password=${NVPASS} \
-#			-f ${TMPFS_MNT}/data.tmp >/dev/null 2>&1
-#		RC=$?
-#		if [ ${RC} -ne 0 ]; then
-#			NVINDEX=$(( $NVINDEX + 1 ))
-#			echo "rc for tpm_nvread is ${RC}. Trying NV index ${NVINDEX}"
-#			continue
-#		fi
-#
-#		# version check
-#		od -A n -N 1 -t x1 ${TMPFS_MNT}/data.tmp|grep -q 00
-#		RC=$?
-#		if [ ${RC} -ne 0 ]; then
-#			echo "ignoring NV index ${NVINDEX} (wrong version)"
-#			NVINDEX=$(( $NVINDEX + 1 ))
-#			continue
-#		fi
-#
-#		break
-#	done
-
 	TMPFS_FILE=${1}
 	DEVICE=${2}
 	NAME=${3}
 	TMPFS_MNT=${1%/*}
 
-	# copy out all but the version byte
+	# copy out all but the version byte to a new file
 	dd if=${TMPFS_FILE} of=${TMPFS_MNT}/data bs=1c skip=1 count=32 >/dev/null 2>&1
-	dd if=/dev/zero of=${TMPFS_FILE} bs=1c skip=1 count=33 >/dev/null 2>&1
-	rm -f ${TMPFS_FILE}
 
-	#echo "${TMPFS_MNT}/data"
-	$CRYPTSETUP luksOpen ${DEVICE} ${NAME} --key-file ${TMPFS_MNT}/data --keyfile-size 32 --readonly
-	dd if=/dev/zero of=${TMPFS_MNT}/data bs=33 count=1 >/dev/null 2>&1
-	umount ${TMPFS_MNT}
+	$CRYPTSETUP luksOpen ${DEVICE} ${NAME} --key-file ${TMPFS_MNT}/data --keyfile-size 32
+	SCRIPT_RC=$?
+
+	wipe_file ${TMPFS_MNT}/data
 }
 
 function usage
 {
-	echo "usage ${0##*/}: [-c|-r] [options]"
+	echo "usage ${0##*/}: [-c|-o|-m|-r] [options]"
 	echo "options:"
 	echo -e "  -c                create a new key, store it in TPM NVRAM and add it to a"
 	echo -e	"                     LUKS keyslot"
@@ -370,10 +296,8 @@ if [ $(id -u) -ne 0 ];then
 fi
 
 SAME_AUTH=0
-OWNERPASS=
-NVPASS=
 NVINDEX=
-ACTION="xxx"
+ACTION="x"
 
 while getopts "cp:ro:sd:qm" opt; do
 	case $opt in
@@ -383,6 +307,12 @@ while getopts "cp:ro:sd:qm" opt; do
 	o)
 		ACTION="open"
 		NAME=${OPTARG}
+		;;
+	m)
+		ACTION="migrate"
+		;;
+	r)
+		ACTION="retrieve"
 		;;
 	s)
 		KEY_SLOT=${OPTARG}
@@ -398,12 +328,6 @@ while getopts "cp:ro:sd:qm" opt; do
 		;;
 	q)
 		SAME_AUTH=1
-		;;
-	m)
-		ACTION="migrate"
-		;;
-	r)
-		ACTION="retrieve"
 		;;
 	*)
 		usage
@@ -422,12 +346,10 @@ if [ "${ACTION}" == "create" ]; then
 		exit -1
 	fi
 
-	DEVICE=$(find_luks_device)
+	test -n "$DEVICE" && \
+		DEVICE=$(find_luks_device)
 
-	if [ ! -n "${OWNERPASS}" ]; then
-		read -s -p "Enter your TPM owner password: " OWNERPASS
-		echo
-	fi
+	get_owner_password
 
 	if [ ! -n "${NVINDEX}" ]; then
 		NVINDEX=$(find_free_nv_index)
@@ -447,34 +369,34 @@ if [ "${ACTION}" == "create" ]; then
 		fi
 	fi
 
-	nv_write ${NVINDEX} ${DEVICE} ${OWNERPASS} ${NVPASS1} ${PERMSFILE}
-elif [ "${ACTION}" == "open" ]; then
-	if [ ! -n "${NVPASS}" ]; then
-		read -s -p "Enter your TPM NVRAM password: " NVPASS
-		echo
-	fi
+	#nv_write ${NVINDEX} ${DEVICE} ${OWNERPASS} ${NVPASS1} ${PERMSFILE}
+	TMPFS_KEYFILE=$(keyfile_generate)
 
-	if [ ! -n "${DEVICE}" ]; then
-		DEVICES=$(find_luks_device)
-		if [ -n "${DEVICES}" ]; then
-			exit 3
-		fi
-		DEVICE=${DEVICES}
-	fi
+	test -e $TMPFS_KEYFILE && \
+		nv_define_and_write ${OWNERPASS} ${NVPASS1} ${TMPFS_KEYFILE} \
+			${NVINDEX} ${PERMSFILE}
+
+	# copy out all but the version byte
+	dd if=${TMPFS_KEYFILE} of=${TMPFS_KEYFILE}.data bs=1c skip=1 count=32 >/dev/null 2>&1
+
+	wipe_file ${TMPFS_KEYFILE}
+
+	luks_add_key ${TMPFS_KEYFILE}.data ${DEVICE}
+
+	wipe_file ${TMPFS_KEYFILE}.data
+elif [ "${ACTION}" == "open" ]; then
+	get_nv_password
+
+	test -n "$DEVICE" && \
+		DEVICE=$(find_luks_device)
 
 	NVFILE=$(nv_get ${NVPASS})
 	luks_open ${NVFILE} ${DEVICE} ${NAME}
 
+	wipe_file ${NVFILE}
 elif [ "${ACTION}" == "migrate" ]; then
-	if [ ! -n "${OWNERPASS}" ]; then
-		read -s -p "Enter your TPM owner password: " OWNERPASS
-		echo
-	fi
-
-	if [ ! -n "${NVPASS}" ]; then
-		read -s -p "Enter your current TPM NVRAM password: " NVPASS
-		echo
-	fi
+	get_owner_password
+	get_nv_password
 
 	if [ ! -n "${NVINDEX}" ]; then
 		NVINDEX=$(find_free_nv_index)
@@ -483,10 +405,7 @@ elif [ "${ACTION}" == "migrate" ]; then
 	NVFILE=$(nv_get ${NVPASS})
 	nv_define_and_write ${OWNERPASS} ${NVPASS} ${NVFILE} ${NVINDEX} ${PERMSFILE}
 elif [ "${ACTION}" == "retrieve" ]; then
-	if [ ! -n "${NVPASS}" ]; then
-		read -s -p "Enter your current TPM NVRAM password: " NVPASS
-		echo
-	fi
+	get_nv_password
 
 	echo $(nv_get ${NVPASS})
 else
@@ -494,4 +413,4 @@ else
 	exit 1
 fi
 
-exit 0
+exit $SCRIPT_RC
