@@ -1,0 +1,100 @@
+#!/bin/bash
+#
+#
+#
+#
+#set -x
+
+PCRS="4 5 12 14"
+TMPFILE=
+SOURCE=/sys/kernel/security/tpm0/ascii_bios_measurements
+MENU=/boot/grub/menu.lst
+
+cleanup()
+{
+	rm -f $TMPFILE
+}
+
+TMPFILE=$(mktemp -q /tmp/${0##*/}-XXXXXX)
+
+if [ ! -n "$TMPFILE" ]; then
+	echo "Temp file creation failed"
+	exit -1
+else
+	trap cleanup EXIT
+fi
+
+OLD_IFS=${IFS}
+IFS=$'\n'
+TITLES=( $(cat $MENU | awk -F "\n" '$1 ~ /^[\W]*title/ { print $0 }' | sed 's/title//') )
+ROOTS=( $(cat $MENU | awk -F "\n" '$1 ~ /^\Wroot/ { print $0 }') )
+KERNELS=( $(cat ${MENU} | awk -F "\n" '$1 ~ /^\Wkernel/ { print $0 }') )
+INITRDS=( $(cat $MENU | awk -F "\n" '$1 ~ /^\Winitrd/ { print $0 }') )
+IFS=${OLD_IFS}
+
+NUM_ENTRIES=$(( ${#KERNELS[@]} - 1 ))
+KERNEL_FILES=
+INITRD_FILES=
+
+for e in $(seq 0 $NUM_ENTRIES); do
+	# save off the file names (required for PCR 14)
+	KERNEL_FILES[$e]="/boot$(echo ${KERNELS[$e]} | awk '{ print $2 }')"
+	INITRD_FILES[$e]="/boot$(echo ${INITRDS[$e]} | awk '{ print $2 }')"
+
+	# compute hashes of the strings themselves (required for PCR 12)
+	ROOTS[$e]=$(echo "${ROOTS[$e]}" | sed 's/^[ \t]*//' | tr -d "\n"|sha1sum | awk '{ print $1}')
+	KERNELS[$e]=$(echo "${KERNELS[$e]}" | sed 's/^[ \t]*//' | tr -d "\n"|sha1sum | awk '{ print $1}')
+	INITRDS[$e]=$(echo "${INITRDS[$e]}" | sed 's/^[ \t]*//' | tr -d "\n"|sha1sum | awk '{ print $1}')
+done
+BOOT=$(echo -n "boot" | sha1sum | awk '{ print $1 }')
+
+for e in $(seq 0 $NUM_ENTRIES); do
+	echo "# ${TITLES[$e]}"
+	for PCR in ${PCRS[@]}; do
+		AWK_STR="\$1 ~ /${PCR}/ { print \$2 }"
+		MEASUREMENTS=$(cat $SOURCE | awk "$AWK_STR")
+
+		j=0
+		for m in $MEASUREMENTS; do
+			if [ $j -eq 0 ]; then
+				CURR_PCR=$(chain_hashes -o $TMPFILE -h $m)
+			else
+				CURR_PCR=$(chain_hashes -f $TMPFILE -o $TMPFILE -h $m)
+			fi
+
+			j=$(( $j + 1 ))
+		done
+
+		# Sitting in $TMPFILE is the binary hash value of PCR $1 at the point in
+		# time where the BIOS stopped touching it (this will vary by PCR)
+		#
+		# Using $TMPFILE as a starting point, continue the chaining process
+
+		case $PCR in
+		4)
+			echo "r $PCR $CURR_PCR"
+			echo "w $PCR $CURR_PCR"
+			;;
+		5)
+			echo "r $PCR $CURR_PCR"
+			echo "w $PCR $CURR_PCR"
+			;;
+		12)
+			#set -x
+			CURR_PCR=$(chain_hashes -o $TMPFILE -h ${ROOTS[$e]} ${KERNELS[$e]} ${INITRDS[$e]} ${BOOT})
+			echo "r $PCR $CURR_PCR"
+			echo "w $PCR $CURR_PCR"
+			#set +x
+			;;
+		14)
+			#set -x
+			CURR_PCR=$(chain_hashes -o $TMPFILE ${KERNEL_FILES[$e]} ${INITRD_FILES[$e]})
+			echo "r $PCR $CURR_PCR"
+			echo "w $PCR $CURR_PCR"
+			#set +x
+			;;
+		esac
+	done
+done
+
+exit 0
