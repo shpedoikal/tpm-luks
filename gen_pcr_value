@@ -1,7 +1,6 @@
 #!/bin/bash
 #
-#
-#
+# Author: Kent Yoder <yoder1@us.ibm.com>
 #
 #set -x
 
@@ -49,7 +48,8 @@ done
 BOOT=$(echo -n "boot" | sha1sum | awk '{ print $1 }')
 
 for e in $(seq 0 $NUM_ENTRIES); do
-	echo "# ${TITLES[$e]}"
+	(
+	#echo "# ${TITLES[$e]}"
 	for PCR in ${PCRS[@]}; do
 		AWK_STR="\$1 ~ /${PCR}/ { print \$2 }"
 		MEASUREMENTS=$(cat $SOURCE | awk "$AWK_STR")
@@ -80,21 +80,18 @@ for e in $(seq 0 $NUM_ENTRIES); do
 			echo "w $PCR $CURR_PCR"
 			;;
 		12)
-			#set -x
 			CURR_PCR=$(chain_hashes -o $TMPFILE -h ${ROOTS[$e]} ${KERNELS[$e]} ${INITRDS[$e]} ${BOOT})
 			echo "r $PCR $CURR_PCR"
 			echo "w $PCR $CURR_PCR"
-			#set +x
 			;;
 		14)
-			#set -x
 			CURR_PCR=$(chain_hashes -o $TMPFILE ${KERNEL_FILES[$e]} ${INITRD_FILES[$e]})
 			echo "r $PCR $CURR_PCR"
 			echo "w $PCR $CURR_PCR"
-			#set +x
 			;;
 		esac
 	done
+	) > nv-perms-boot-entry-$e.txt
 done
 
 exit 0
