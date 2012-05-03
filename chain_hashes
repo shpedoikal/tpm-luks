@@ -1,6 +1,7 @@
 #!/bin/bash
 #
-# This script calculates a TPM PCR value. This is handy when you need to
+# This script calculates a chain of sha1 hashes in the same way a TPM would
+# when extending Platform Configuration Registers. This is handy when you need to
 # seal a TPM key or NVRAM area to a PCR value that's not yet measured into
 # the TPM.
 #
