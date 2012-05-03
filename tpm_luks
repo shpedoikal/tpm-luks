@@ -9,7 +9,7 @@ NV_INDEX_LIMIT=16
 TPM_LUKS_NVRAM_SIZE=33
 
 set -e
-set -x
+#set -x
 
 TEMP_MNT=
 SCRIPT_RC=0
@@ -275,6 +275,8 @@ function usage
 	echo -e "  -c                create a new key, store it in TPM NVRAM and add it to a"
 	echo -e	"                     LUKS keyslot"
 	echo -e "  -o <name>         get a secret from TPM NVRAM and use it to open a LUKS device"
+	echo -e "  -m                migrate NVRAM data to a new NVRAM area"
+	echo -e "  -r                retrieve NVRAM data and write to a tmpfs file"
 #	echo -e "  -q                re-use the same password for each NVRAM area (only prompt"
 #	echo -e	"                     once)"
 	echo -e "  -s <keyslot>      use the specified LUKS key slot (view free slots with "
@@ -283,7 +285,6 @@ function usage
 	echo -e	"                     indexes with tpm_nvinfo)"
 	echo -e "  -d <device>       use the specified LUKS device (print with "
 	echo -e	"                     'blkid -t TYPE=crypto_LUKS')"
-	echo -e "  -m                migrate NVRAM data to a new NVRAM area"
 	echo -e	"  -p <nvpermsfile>  use the specified NV permissions file for the new area"
 }
 
