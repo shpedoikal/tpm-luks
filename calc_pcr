@@ -95,6 +95,7 @@ fi
 # if we're not using an initial state from file, put the initial state
 # there manually
 if [ ! -n "${STATE_FILE}" ]; then
+	truncate -s 0 ${OUTFILE}
 	ascii_to_bin ${INIT_STATE} ${OUTFILE}
 elif [ "${STATE_FILE}" != "${OUTFILE}" ]; then
 	cp ${STATE_FILE} ${OUTFILE}
