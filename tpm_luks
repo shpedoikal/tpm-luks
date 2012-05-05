@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 #
 # package reqs: tpm-tools, trousers
 #
@@ -8,13 +8,30 @@ CRYPTSETUP=/sbin/cryptsetup
 NV_INDEX_LIMIT=16
 TPM_LUKS_NVRAM_SIZE=33
 
-set -e
 #set -x
 
-TEMP_MNT=
+TMPFS_MNT=
+TMPFS_KEYFILE=
 SCRIPT_RC=0
 OWNERPASS=
 NVPASS=
+
+function prompt_for_new_nvpass
+{
+	if [ ! -n "${NVPASS}" ]; then
+		read -s -p "Enter a new TPM NV area password: " NVPASS1
+		echo
+		read -s -p "Re-enter the new TPM NV area password: " NVPASS2
+		echo
+
+		if [ "${NVPASS1}" != "${NVPASS2}" ]; then
+			echo "New passwords don't match!"
+			exit -1
+		fi
+
+		NVPASS=${NVPASS1}
+	fi
+}
 
 function get_nv_password
 {
@@ -34,7 +51,7 @@ function get_owner_password
 
 function exit_hook
 {
-	umount $TEMP_MNT
+	umount $TMPFS_MNT
 }
 
 function wipe_file
@@ -45,14 +62,16 @@ function wipe_file
 
 function create_tmpfs_mount
 {
-	test -n "$TEMP_MNT" && echo "BUG IN SCRIPT MULTIPLE TEMP MOUNTS" && exit -1
+	test -n "$TMPFS_MNT" && echo "BUG IN SCRIPT MULTIPLE TEMP MOUNTS" && exit -1
 
-	TEMP_MNT=$(mktemp -q -d /tmp/${0##*/}-XXXXXX)
-	if [ -n "$TEMP_MNT" ]; then
-		mount -t tmpfs -o size=16K tmpfs ${TEMP_MNT}
+	TMPFS_MNT=$(mktemp -q -d /tmp/${0##*/}-XXXXXX)
+	if [ -n "$TMPFS_MNT" ]; then
+		mount -t tmpfs -o size=16K tmpfs ${TMPFS_MNT}
 
 		if [ $? -eq 0 ]; then
-			trap exit_hook EXIT
+			if [ ${1} -eq 1 ]; then
+				trap exit_hook EXIT
+			fi
 		else
 			# let the output from mount tell the user what happened
 			exit -1
@@ -61,8 +80,6 @@ function create_tmpfs_mount
 		echo "Failed to create temp mount point for tmpfs"
 		exit -1
 	fi
-
-	echo "$TEMP_MNT"
 }
 
 function tpm_enabled
@@ -100,7 +117,7 @@ function find_luks_nv_indexes
 {
 	NV_SIZES=( $(tpm_nvinfo | awk '$1 ~ /Size/ { print $3 }') )
 	NV_INDEXES=( $(tpm_nvinfo | awk '$1$2 ~ /NVRAMindex/ { print $4 }') )
-	NUM_INDEXES=$(( ${#NV_INDEXES} - 1 ))
+	NUM_INDEXES=$(( ${#NV_INDEXES[@]} - 1 ))
 
 	for i in $(seq 0 ${NUM_INDEXES}); do
 		#echo "DBG: ${NV_SIZES[$i]}"
@@ -118,7 +135,7 @@ function find_free_nv_index
 	NV_INDEXES=$(tpm_nvinfo | awk '$1$2 ~ /NVRAMindex/ { print $4 }')
 
 	for i in ${NV_INDEXES}; do
-		if [ $i -gt ${NV_INDEX_LIMIT} ]; then
+		if [ $(( $i )) -gt ${NV_INDEX_LIMIT} ]; then
 			continue
 		fi
 
@@ -149,36 +166,36 @@ function find_luks_device
 #
 function keyfile_generate
 {
-	TMPFS_MNT=$(create_tmpfs_mount)
+	create_tmpfs_mount 1
+
+	TMPFS_KEYFILE=${TMPFS_MNT}/key
 
 	# write the version bytes (version 0)
-	test $? -eq 0 && \
-		dd if=/dev/zero of=${TMPFS_MNT}/key bs=1c count=1 >/dev/null 2>&1
+	dd if=/dev/zero of=${TMPFS_KEYFILE} bs=1c count=1 >/dev/null 2>&1 \
+		|| exit -1
 
 	# write a 32 byte symmetric key
-	test $? -eq 0 && \
-		dd if=/dev/urandom of=${TMPFS_MNT}/key bs=1c seek=1 count=32 >/dev/null 2>&1
-
-	test $? -eq 0 && \
-		echo "${TMPFS_MNT}/key"
-
-	return $?
+	dd if=/dev/urandom of=${TMPFS_KEYFILE} bs=1c seek=1 count=32 \
+		>/dev/null 2>&1 || exit -1
 }
 
 function nv_define_and_write
 {
-	OWNERPASS=${1}
-	NVPASS=${2}
-	DATAFILE=${3}
-	NVINDEX=${4}
-	PERMSFILE=${5}
+	PERMSFILE=${1}
+	DATAFILE=${TMPFS_KEYFILE}
+
+	get_owner_password
+
+	if [ ! -n "${NVINDEX}" ]; then
+		NVINDEX=$(find_free_nv_index)
+	fi
 
 	if [ -n "${PERMSFILE}" ]; then
 		tpm_nvdefine -i ${NVINDEX} -s 33 -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
-			-a ${NVPASS} -f ${PERMSFILE}
+			-a ${NVPASS} -f ${PERMSFILE} >/dev/null
 	else
 		tpm_nvdefine -i ${NVINDEX} -s 33 -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
-			-a ${NVPASS}
+			-a ${NVPASS} >/dev/null
 	fi
 
 	test $? -ne 0 && \
@@ -196,7 +213,7 @@ function nv_define_and_write
 #
 function luks_add_key
 {
-	TMPFS_KEYFILE=${1}
+	KEYFILE=${1}
 	DEVICE=${2}
 	KEY_SLOT=0
 
@@ -212,16 +229,19 @@ function luks_add_key
 	echo "You will now be prompted to enter any valid LUKS passphrase in order to store"
 	echo "the new TPM NVRAM secret in LUKS key slot ${KEY_SLOT}:\n"
 
-	$CRYPTSETUP luksAddKey --key-slot ${KEY_SLOT} $DEVICE ${TMPFS_KEYFILE}.data
+	$CRYPTSETUP luksAddKey --key-slot ${KEY_SLOT} $DEVICE ${KEYFILE}
 	SCRIPT_RC=$?
 }
 
 #
-# nv_get
+# nv_get - read out a TPM NVRAM area onto a tmpfs mount
+#
+# exits on failure
 #
 function nv_get
 {
-	NVPASS=${1}
+	get_nv_password
+
 	NV_INDEXES=( $(find_luks_nv_indexes) )
 
 	if [ ${#NV_INDEXES} -eq 0 ]; then
@@ -229,38 +249,30 @@ function nv_get
 		exit -1
 	fi
 
-	TMPFS_MNT=$(create_tmpfs_mount)
-	test $? -ne 0 && \
-		exit -1
+	create_tmpfs_mount 0
 
+	TMPFS_KEYFILE="${TMPFS_MNT}/data.tmp"
 	for i in ${NV_INDEXES[*]}; do
-		tpm_nvread -i $i -s 33 --password=${NVPASS} -f ${TMPFS_MNT}/data.tmp \
-			>/dev/null 2>&1
-
-		test $? -ne 0 &&
-			continue
+		tpm_nvread -i $i -s 33 --password=${NVPASS} -f ${TMPFS_KEYFILE} \
+			>/dev/null 2>&1 || continue
 
 		# version check
-		od -A n -N 1 -t x1 ${TMPFS_MNT}/data.tmp | grep -q 00
-
-		test $? -ne 0 && \
-			continue
-
-		break
+		od -A n -N 1 -t x1 ${TMPFS_KEYFILE} | grep -q 00 || continue
+		return
 	done
 
-	echo "${TMPFS_MNT}/data.tmp"
+	echo "Couldn't read any indexes from TPM NVRAM"
+	exit -1
 }
 
 function luks_open
 {
-	TMPFS_FILE=${1}
-	DEVICE=${2}
-	NAME=${3}
-	TMPFS_MNT=${1%/*}
+	DEVICE=${1}
+	NAME=${2}
+	TMPFS_MNT=${TMPFS_KEYFILE%/*}
 
 	# copy out all but the version byte to a new file
-	dd if=${TMPFS_FILE} of=${TMPFS_MNT}/data bs=1c skip=1 count=32 >/dev/null 2>&1
+	dd if=${TMPFS_KEYFILE} of=${TMPFS_MNT}/data bs=1c skip=1 count=32 >/dev/null 2>&1
 
 	$CRYPTSETUP luksOpen ${DEVICE} ${NAME} --key-file ${TMPFS_MNT}/data --keyfile-size 32
 	SCRIPT_RC=$?
@@ -270,15 +282,15 @@ function luks_open
 
 function usage
 {
-	echo "usage ${0##*/}: [-c|-o|-m|-r] [options]"
-	echo "options:"
+	echo "usage ${0##*/}: [-c|-o|-m|-r|-w] [options]"
 	echo -e "  -c                create a new key, store it in TPM NVRAM and add it to a"
 	echo -e	"                     LUKS keyslot"
 	echo -e "  -o <name>         get a secret from TPM NVRAM and use it to open a LUKS device"
 	echo -e "  -m                migrate NVRAM data to a new NVRAM area"
 	echo -e "  -r                retrieve NVRAM data and write to a tmpfs file"
-#	echo -e "  -q                re-use the same password for each NVRAM area (only prompt"
-#	echo -e	"                     once)"
+	echo -e "  -w <file>         write file to NVRAM"
+	echo
+	echo "options:"
 	echo -e "  -s <keyslot>      use the specified LUKS key slot (view free slots with "
 	echo -e	"                     'cryptsetup luksDump <device>')"
 	echo -e "  -i <index>        use the specified TPM NVRAM index for the new area (view "
@@ -286,21 +298,17 @@ function usage
 	echo -e "  -d <device>       use the specified LUKS device (print with "
 	echo -e	"                     'blkid -t TYPE=crypto_LUKS')"
 	echo -e	"  -p <nvpermsfile>  use the specified NV permissions file for the new area"
+	echo -e	"  -h                help"
 }
 
 #
 # main()
 #
-if [ $(id -u) -ne 0 ];then
-	echo "You'll need to be root for this (uses tmpfs mount)"
-	exit -1
-fi
-
-SAME_AUTH=0
+UIDCHECK=1
 NVINDEX=
 ACTION="x"
 
-while getopts "cp:ro:sd:qm" opt; do
+while getopts "co:mrw:s:i:d:p:qh" opt; do
 	case $opt in
 	c)
 		ACTION="create"
@@ -315,6 +323,11 @@ while getopts "cp:ro:sd:qm" opt; do
 	r)
 		ACTION="retrieve"
 		;;
+	w)
+		ACTION="write"
+		UIDCHECK=0
+		TMPFS_KEYFILE=${OPTARG}
+		;;
 	s)
 		KEY_SLOT=${OPTARG}
 		;;
@@ -327,15 +340,18 @@ while getopts "cp:ro:sd:qm" opt; do
 	p)
 		PERMSFILE=${OPTARG}
 		;;
-	q)
-		SAME_AUTH=1
-		;;
 	*)
 		usage
 		exit -1
 		;;
 	esac
 done
+
+
+if [ ${UIDCHECK} -a $(id -u) -ne 0 ]; then
+	echo "You'll need to be root for this (uses tmpfs mount)"
+	exit -1
+fi
 
 # always check that TPM is enabled and owned
 tpm_enabled
@@ -350,65 +366,40 @@ if [ "${ACTION}" == "create" ]; then
 	test -n "$DEVICE" && \
 		DEVICE=$(find_luks_device)
 
-	get_owner_password
+	prompt_for_new_nvpass
 
-	if [ ! -n "${NVINDEX}" ]; then
-		NVINDEX=$(find_free_nv_index)
-	fi
+	keyfile_generate
 
-	echo "Using NV index ${NVINDEX} for device ${DEVICE}"
-
-	if [ ! -n "NVPASS1" -o ${SAME_AUTH} -eq 0 ]; then
-		read -s -p "Enter a TPM NV area password for ${DEVICE}: " NVPASS1
-		echo
-		read -s -p "Re-enter a TPM NV area password for ${DEVICE}: " NVPASS2
-		echo
-
-		if [ "${NVPASS1}" != "${NVPASS2}" ]; then
-			echo "NV passwords don't match!"
-			exit -1
-		fi
-	fi
-
-	#nv_write ${NVINDEX} ${DEVICE} ${OWNERPASS} ${NVPASS1} ${PERMSFILE}
-	TMPFS_KEYFILE=$(keyfile_generate)
-
-	test -e $TMPFS_KEYFILE && \
-		nv_define_and_write ${OWNERPASS} ${NVPASS1} ${TMPFS_KEYFILE} \
-			${NVINDEX} ${PERMSFILE}
+	nv_define_and_write ${PERMSFILE}
 
 	# copy out all but the version byte
-	dd if=${TMPFS_KEYFILE} of=${TMPFS_KEYFILE}.data bs=1c skip=1 count=32 >/dev/null 2>&1
+	dd if=${TMPFS_KEYFILE} of=${TMPFS_KEYFILE}.data bs=1c skip=1 count=32 \
+		>/dev/null 2>&1
 
 	wipe_file ${TMPFS_KEYFILE}
-
 	luks_add_key ${TMPFS_KEYFILE}.data ${DEVICE}
-
 	wipe_file ${TMPFS_KEYFILE}.data
-elif [ "${ACTION}" == "open" ]; then
-	get_nv_password
 
+	echo "Using NV index ${NVINDEX} for device ${DEVICE}"
+elif [ "${ACTION}" == "open" ]; then
 	test -n "$DEVICE" && \
 		DEVICE=$(find_luks_device)
 
-	NVFILE=$(nv_get ${NVPASS})
-	luks_open ${NVFILE} ${DEVICE} ${NAME}
-
-	wipe_file ${NVFILE}
+	nv_get
+	luks_open ${DEVICE} ${NAME}
+	wipe_file ${TMPFS_KEYFILE}
 elif [ "${ACTION}" == "migrate" ]; then
-	get_owner_password
-	get_nv_password
+	nv_get
+	nv_define_and_write ${PERMSFILE}
 
-	if [ ! -n "${NVINDEX}" ]; then
-		NVINDEX=$(find_free_nv_index)
-	fi
-
-	NVFILE=$(nv_get ${NVPASS})
-	nv_define_and_write ${OWNERPASS} ${NVPASS} ${NVFILE} ${NVINDEX} ${PERMSFILE}
+	wipe_file ${TMPFS_KEYFILE}
 elif [ "${ACTION}" == "retrieve" ]; then
-	get_nv_password
-
-	echo $(nv_get ${NVPASS})
+	nv_get
+	echo ${TMPFS_KEYFILE}
+elif [ "${ACTION}" == "write" ]; then
+	prompt_for_new_nvpass
+	#set -x
+	nv_define_and_write ${PERMSFILE}
 else
 	usage
 	exit 1
