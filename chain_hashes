@@ -5,8 +5,8 @@
 # seal a TPM key or NVRAM area to a PCR value that's not yet measured into
 # the TPM.
 #
-# This script defaults to an initial state of 20 bytes of zeroes and that files
-# will be hashed in the order that they appear on the command line
+# This script defaults to an initial state of 20 bytes of zeroes and files
+# will be chained in the order that they appear on the command line
 #
 # Author: Kent Yoder <yoder1@us.ibm.com>
 #
@@ -50,6 +50,7 @@ INIT_STATE=
 INTERMEDIATE_SHA1_ASCII=
 OUT_FILE=
 HASH_MODE=0
+STATE_FILE=
 
 while getopts "hs:f:o:" opt; do
 	case $opt in
@@ -98,7 +99,7 @@ fi
 if [ ! -n "${STATE_FILE}" ]; then
 	truncate -s 0 ${OUTFILE}
 	ascii_to_bin ${INIT_STATE} ${OUTFILE}
-elif [ "${STATE_FILE}" != "${OUTFILE}" ]; then
+elif [ "$(readlink -f ${STATE_FILE})" != "$(readlink -f ${OUTFILE})" ]; then
 	cp ${STATE_FILE} ${OUTFILE}
 fi
 
