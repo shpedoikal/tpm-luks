@@ -19,11 +19,11 @@ VIABLE_INDEXES=""
 
 #
 # An index is viable if its composite hash matches current PCR state, or if
-#it doesn't require PCR state at all
+# it doesn't require PCR state at all
 #
 ALL_INDEXES=$($GETCAP -cap 0xd | awk -F "= " '$1 ~ /Index/ {print $2 }' | awk -F "." '{ print $1 }')
 for i in $ALL_INDEXES; do
-	MATCH=$(./getcapability -cap 0x11 -scap $i | awk -F ": " '$1 ~ /Matches/ { print $2 }')
+	MATCH=$($GETCAP -cap 0x11 -scap $i | awk -F ": " '$1 ~ /Matches/ { print $2 }')
 	if test -n "$MATCH" && test "$MATCH" = "No"; then
 		continue
 	fi
