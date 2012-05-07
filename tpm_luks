@@ -215,13 +215,13 @@ function nv_define_and_write
 	fi
 
 	if [ $? -ne 0 ]; then
-		return -1
+		return 255
 	fi
 
 	tpm_nvwrite -i ${NVINDEX} -s 33 -f ${DATAFILE} --password=${NVPASS}
 	if [ $? -ne 0 ]; then
 		tpm_nvrelease -i ${NVINDEX} --pwdo=${OWNERPASS}
-		return -1
+		return 255
 	fi
 
 	return 0
@@ -260,7 +260,11 @@ function nv_get
 {
 	get_nv_password
 
-	NV_INDEXES=( $(find_luks_nv_indexes) )
+	if [ ! -n "$NVINDEX" ]; then
+		NV_INDEXES=( $(find_luks_nv_indexes) )
+	else
+		NV_INDEXES=( $NVINDEX )
+	fi
 
 	if [ ${#NV_INDEXES} -eq 0 ]; then
 		echo "Found 0 NVRAM indexes readable by this script"
@@ -410,6 +414,7 @@ elif [ "${ACTION}" == "open" ]; then
 	exit_hook
 elif [ "${ACTION}" == "migrate" ]; then
 	nv_get
+	NVINDEX=""
 	nv_define_and_write ${PERMSFILE}
 
 	wipe_file ${TMPFS_KEYFILE}
@@ -419,7 +424,6 @@ elif [ "${ACTION}" == "retrieve" ]; then
 	echo ${TMPFS_KEYFILE}
 elif [ "${ACTION}" == "write" ]; then
 	prompt_for_new_nvpass
-	#set -x
 	nv_define_and_write ${PERMSFILE}
 else
 	usage
