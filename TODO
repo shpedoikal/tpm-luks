@@ -1,0 +1,5 @@
+
+50plymouth-tpm/cryptroot-ask-tpm.sh:
+- use a nv_info command to interrogate only relevant NV indexes to avoid
+  DA logic
+- include DA reset command
