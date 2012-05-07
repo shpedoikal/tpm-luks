@@ -1,0 +1,8 @@
+#!/bin/bash
+set -x
+
+gen_pcr_value || exit -1
+
+for f in $(echo nv-perms-boot-entry-*.txt); do
+	tpm_luks -m -p $f
+done
