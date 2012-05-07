@@ -445,6 +445,8 @@ int main(int argc, char *argv[])
 			      break;
 			  case TPM_CAP_NV_INDEX:
 			      {
+				  TPM_PCR_INFO scratch_info;
+				  uint32_t scratch_info_len;
 				  TPM_NV_DATA_PUBLIC ndp;
 				  uint32_t i, c;
 				  STACK_TPM_BUFFER(tb)
@@ -477,10 +479,28 @@ int main(int argc, char *argv[])
 				  }
 
 				  if (c) {
+				      ret = TSS_GenPCRInfo(
+						*(uint32_t *)ndp.pcrInfoRead.pcrSelection.pcrSelect,
+						(unsigned char *)&scratch_info,
+						(uint32_t *)&scratch_info_len
+						);
+
 				      printf("\nRead PCR Composite: ");
 				      for (i = 0; i < 20; i++)
 					  printf("%02x", ndp.pcrInfoRead.digestAtRelease[i] & 0xff);
 				      printf("\n");
+
+				      if (!ret) {
+					      printf("Matches current TPM state: ");
+
+					      if (!memcmp(&scratch_info.digestAtRelease,
+							  &ndp.pcrInfoRead.digestAtRelease,
+							  20)) {
+						      printf("Yes\n");
+					      } else {
+						      printf("No\n");
+					      }
+				      }
 				  }
 
 
