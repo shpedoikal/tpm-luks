@@ -6,6 +6,7 @@
 #
 CRYPTSETUP=/sbin/cryptsetup
 MOUNT=/bin/mount
+UMOUNT=/bin/umount
 TPM_NVREAD=/usr/bin/nv_readvalue
 NV_INDEX_LIMIT=8
 PCRS=8
@@ -29,35 +30,47 @@ fi
 
 $MOUNT -t tmpfs -o size=16K tmpfs ${TMPFS_MNT}
 if [ $? -ne 0 ]; then
-	/bin/plymouth --text "Unable to mount tmpfs area to securely save TPM NVRAM data."
-	/bin/plymouth ask-for-password \
-		--prompt "Password for ${DEVICE} (${NAME}):" \
-	        --command="$CRYPTSETUP luksOpen -T1 ${DEVICE} ${NAME}"
+	echo "Unable to mount tmpfs area to securely save TPM NVRAM data."
+	#/bin/plymouth --text "Unable to mount tmpfs area to securely save TPM NVRAM data."
+	#/bin/plymouth ask-for-password \
+	#	--prompt "Password for ${DEVICE} (${NAME}):" \
+	#        --command="$CRYPTSETUP luksOpen -T1 ${DEVICE} ${NAME}"
+	exit -1
 fi
+
+TMPFILE=${TMPFS_MNT}/data.tmp
 
 while [ ${NVINDEX} -lt ${NV_INDEX_LIMIT} ]; do
 	$TPM_NVREAD -ix ${NVINDEX} -sz 33 -pwdd ${NVPASS} \
-		-of ${TMPFS_MNT}/data.tmp >/dev/null 2>&1
+		-of ${TMPFILE} >/dev/null 2>&1
 	RC=$?
 	if [ ${RC} -eq 1 ]; then
-		/bin/plymouth --text="TPM NV index ${NVINDEX}: Bad password."
+		#/bin/plymouth --text="TPM NV index ${NVINDEX}: Bad password."
+		echo "TPM NV index ${NVINDEX}: Bad password."
 		NVINDEX=$(( $NVINDEX + 1 ))
 		continue
 	elif [ ${RC} -eq 24 ]; then
-		/bin/plymouth --text="TPM NV index ${NVINDEX}: PCR mismatch."
+		#/bin/plymouth --text="TPM NV index ${NVINDEX}: PCR mismatch."
+		echo "TPM NV index ${NVINDEX}: PCR mismatch."
 		NVINDEX=$(( $NVINDEX + 1 ))
 		continue
 	elif [ ${RC} -eq 2 ]; then
-		/bin/plymouth --text="TPM NV index ${NVINDEX}: Invalid NVRAM Index."
+		#/bin/plymouth --text="TPM NV index ${NVINDEX}: Invalid NVRAM Index."
+		echo "TPM NV index ${NVINDEX}: Invalid NVRAM Index."
+		NVINDEX=$(( $NVINDEX + 1 ))
+		continue
+	elif [ ${RC} -ne 0 ]; then
+		echo "TPM NV index ${NVINDEX}: Unknown error (${RC})"
 		NVINDEX=$(( $NVINDEX + 1 ))
 		continue
 	fi
 
 	# version check
-	/usr/bin/od -A n -N 1 -t x1 ${TMPFS_MNT}/data.tmp|grep -q 00
+	/usr/bin/od -A n -N 1 -t x1 ${TMPFILE} | grep -q 00
 	RC=$?
 	if [ ${RC} -ne 0 ]; then
-		/bin/plymouth --text="TPM NV index ${NVINDEX}: wrong version"
+		#/bin/plymouth --text="TPM NV index ${NVINDEX}: wrong version"
+		echo "TPM NV index ${NVINDEX}: wrong version (${RC})"
 		NVINDEX=$(( $NVINDEX + 1 ))
 		continue
 	fi
@@ -67,11 +80,13 @@ done
 
 # NVRAM cannot be accessed. Fall back to LUKS passphrase
 if [ ${NVINDEX} -eq ${NV_INDEX_LIMIT} ]; then
-	/bin/plymouth --text "Unable to unlock an NVRAM area."
-	/bin/plymouth ask-for-password \
-		--prompt "Password for ${DEVICE} (${NAME}):" \
-	        --command="$CRYPTSETUP luksOpen -T1 ${DEVICE} ${NAME}"
-	exit $?
+	echo "Unable to unlock an NVRAM area."
+	#/bin/plymouth --text "Unable to unlock an NVRAM area."
+	#/bin/plymouth ask-for-password \
+	#	--prompt "Password for ${DEVICE} (${NAME}):" \
+	#        --command="$CRYPTSETUP luksOpen -T1 ${DEVICE} ${NAME}"
+	${UMOUNT} ${TMPFS_MNT}
+	exit -1
 fi
 
 # copy out all but the version byte, zeroize, delete
@@ -81,7 +96,7 @@ rm -f ${TMPFS_MNT}/data.tmp
 
 $CRYPTSETUP luksOpen ${DEVICE} ${NAME} --key-file ${TMPFS_MNT}/data --keyfile-size 32
 dd if=/dev/zero of=${TMPFS_MNT}/data bs=33 count=1 >/dev/null 2>&1
-umount ${TMPFS_MNT}
+${UMOUNT} ${TMPFS_MNT}
 
 exit 0
 
