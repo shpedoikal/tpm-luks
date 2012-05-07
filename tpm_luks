@@ -5,11 +5,12 @@
 # Author: Kent Yoder <yoder1@us.ibm.com>
 #
 CRYPTSETUP=/sbin/cryptsetup
-NV_INDEX_LIMIT=16
+NV_INDEX_LIMIT=32
 TPM_LUKS_NVRAM_SIZE=33
 
 #set -x
 
+DEVICE=
 TMPFS_MNT=
 TMPFS_KEYFILE=
 SCRIPT_RC=0
@@ -129,9 +130,9 @@ function find_luks_nv_indexes
 	done
 }
 
-
 function find_free_nv_index
 {
+	NV_INDEX=0
 	NV_INDEXES=$(tpm_nvinfo | awk '$1$2 ~ /NVRAMindex/ { print $4 }')
 
 	for i in ${NV_INDEXES}; do
@@ -139,7 +140,9 @@ function find_free_nv_index
 			continue
 		fi
 
-		NV_INDEX=$i
+		if [ $(( $i )) -gt $(( ${NV_INDEX} )) ]; then
+			NV_INDEX=$i
+		fi
 	done
 
 	echo "$(( $NV_INDEX + 1 ))"
@@ -157,7 +160,20 @@ function find_luks_device
 		exit -1
 	fi
 
-	echo "$(blkid -t TYPE=crypto_LUKS|awk -F: '{print $1}')"
+	DEVICE="$(blkid -t TYPE=crypto_LUKS|awk -F: '{print $1}')"
+	if [ $? -ne 0 ]; then
+		DEVICE=
+		exit -1
+	fi
+
+	return 0
+}
+
+function device_get
+{
+	if [ ! -n "${DEVICE}" ]; then
+		find_luks_device
+	fi
 }
 
 #
@@ -198,14 +214,17 @@ function nv_define_and_write
 			-a ${NVPASS} >/dev/null
 	fi
 
-	test $? -ne 0 && \
-		exit -1
+	if [ $? -ne 0 ]; then
+		return -1
+	fi
 
 	tpm_nvwrite -i ${NVINDEX} -s 33 -f ${DATAFILE} --password=${NVPASS}
 	if [ $? -ne 0 ]; then
 		tpm_nvrelease -i ${NVINDEX} --pwdo=${OWNERPASS}
-		exit -1
+		return -1
 	fi
+
+	return 0
 }
 
 #
@@ -214,7 +233,6 @@ function nv_define_and_write
 function luks_add_key
 {
 	KEYFILE=${1}
-	DEVICE=${2}
 	KEY_SLOT=0
 
 	SLOTID=0
@@ -227,7 +245,7 @@ function luks_add_key
 	done
 
 	echo "You will now be prompted to enter any valid LUKS passphrase in order to store"
-	echo "the new TPM NVRAM secret in LUKS key slot ${KEY_SLOT}:\n"
+	echo -e "the new TPM NVRAM secret in LUKS key slot ${KEY_SLOT}:\n"
 
 	$CRYPTSETUP luksAddKey --key-slot ${KEY_SLOT} $DEVICE ${KEYFILE}
 	SCRIPT_RC=$?
@@ -261,14 +279,15 @@ function nv_get
 		return
 	done
 
+	dd if=/dev/zero of=${TMPFS_KEYFILE} bs=1c count=33 >/dev/null 2>&1
+	umount ${TMPFS_MNT}
 	echo "Couldn't read any indexes from TPM NVRAM"
 	exit -1
 }
 
 function luks_open
 {
-	DEVICE=${1}
-	NAME=${2}
+	NAME=${1}
 	TMPFS_MNT=${TMPFS_KEYFILE%/*}
 
 	# copy out all but the version byte to a new file
@@ -363,36 +382,38 @@ if [ "${ACTION}" == "create" ]; then
 		exit -1
 	fi
 
-	test -n "$DEVICE" && \
-		DEVICE=$(find_luks_device)
+	device_get
 
 	prompt_for_new_nvpass
 
 	keyfile_generate
 
 	nv_define_and_write ${PERMSFILE}
+	if [ $? -ne 0 ]; then
+		exit -1
+	fi
 
 	# copy out all but the version byte
 	dd if=${TMPFS_KEYFILE} of=${TMPFS_KEYFILE}.data bs=1c skip=1 count=32 \
 		>/dev/null 2>&1
 
 	wipe_file ${TMPFS_KEYFILE}
-	luks_add_key ${TMPFS_KEYFILE}.data ${DEVICE}
+	luks_add_key ${TMPFS_KEYFILE}.data
 	wipe_file ${TMPFS_KEYFILE}.data
 
 	echo "Using NV index ${NVINDEX} for device ${DEVICE}"
 elif [ "${ACTION}" == "open" ]; then
-	test -n "$DEVICE" && \
-		DEVICE=$(find_luks_device)
-
+	device_get
 	nv_get
-	luks_open ${DEVICE} ${NAME}
+	luks_open ${NAME}
 	wipe_file ${TMPFS_KEYFILE}
+	exit_hook
 elif [ "${ACTION}" == "migrate" ]; then
 	nv_get
 	nv_define_and_write ${PERMSFILE}
 
 	wipe_file ${TMPFS_KEYFILE}
+	exit_hook
 elif [ "${ACTION}" == "retrieve" ]; then
 	nv_get
 	echo ${TMPFS_KEYFILE}
