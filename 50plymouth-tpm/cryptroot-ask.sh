@@ -48,7 +48,7 @@ if [ -f /etc/crypttab ] && ! getargs rd_NO_CRYPTTAB; then
     unset name dev rest
 fi
 
-prompt="TPM NVRAM password for [$device ($luksname)]:" 
+prompt="TPM NVRAM password for [$device ($luksname)]:"
 if [ ${#luksname} -gt 8 ]; then
     sluksname=${sluksname##luks-}
     sluksname=${luksname%%${luksname##????????}}
@@ -63,6 +63,7 @@ fi
 	--command="/sbin/cryptroot-ask-tpm $device $luksname"
 
     if [ $? -ne 0 ]; then
+	    prompt="LUKS password for [$device ($luksname)]:"
 	    /bin/plymouth ask-for-password \
 	           --prompt "$prompt" \
 	           --command="/sbin/cryptsetup luksOpen -T1 $device $luksname"
