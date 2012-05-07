@@ -1,0 +1,2 @@
+#!/bin/bash
+cat ${1:??} | gunzip -c | cpio -i -d --no-absolute-filenames

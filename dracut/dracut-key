@@ -1,0 +1,3 @@
+#!/bin/bash
+set -x
+dracut -o plymouth -a plymouth-tpm -i $PWD/utils /usr/bin $*
