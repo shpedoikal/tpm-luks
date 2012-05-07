@@ -26,7 +26,13 @@ for i in $ALL_INDEXES; do
 	MATCH=$($GETCAP -cap 0x11 -scap $i | $AWK -F ": " '$1 ~ /Matches/ { print $2 }')
 	if test -n "$MATCH" && test "$MATCH" = "No"; then
 		continue
+	elif test -n "$MATCH" && test "$MATCH" = "Yes"; then
+		# Test this one first
+		VIABLE_INDEXES="$i $VIABLE_INDEXES"
+		echo "PCR composite matches for index: $i"
+		continue
 	fi
+	echo "Viable index: $i"
 
 	VIABLE_INDEXES="$VIABLE_INDEXES $i"
 done
@@ -49,7 +55,7 @@ if [ $? -ne 0 ]; then
 	#/bin/plymouth ask-for-password \
 	#	--prompt "Password for ${DEVICE} (${NAME}):" \
 	#        --command="$CRYPTSETUP luksOpen -T1 ${DEVICE} ${NAME}"
-	exit -1
+	exit 255
 fi
 
 TMPFILE=${TMPFS_MNT}/data.tmp
@@ -97,7 +103,7 @@ if [ ${SUCCESS} -eq 0 ]; then
 	#	--prompt "Password for ${DEVICE} (${NAME}):" \
 	#        --command="$CRYPTSETUP luksOpen -T1 ${DEVICE} ${NAME}"
 	${UMOUNT} ${TMPFS_MNT}
-	exit -1
+	exit 255
 fi
 
 echo "Using data read from NV index $NVINDEX"
