@@ -9,7 +9,7 @@ MOUNT=/bin/mount
 UMOUNT=/bin/umount
 TPM_NVREAD=/usr/bin/nv_readvalue
 GETCAP=/usr/bin/getcapability
-PCRS=8
+AWK=/usr/bin/awk
 DEVICE=${1}
 NAME=${2}
 
@@ -21,9 +21,9 @@ VIABLE_INDEXES=""
 # An index is viable if its composite hash matches current PCR state, or if
 # it doesn't require PCR state at all
 #
-ALL_INDEXES=$($GETCAP -cap 0xd | awk -F "= " '$1 ~ /Index/ {print $2 }' | awk -F "." '{ print $1 }')
+ALL_INDEXES=$($GETCAP -cap 0xd | $AWK -F "= " '$1 ~ /Index/ {print $2 }' | $AWK -F "." '{ print $1 }')
 for i in $ALL_INDEXES; do
-	MATCH=$($GETCAP -cap 0x11 -scap $i | awk -F ": " '$1 ~ /Matches/ { print $2 }')
+	MATCH=$($GETCAP -cap 0x11 -scap $i | $AWK -F ": " '$1 ~ /Matches/ { print $2 }')
 	if test -n "$MATCH" && test "$MATCH" = "No"; then
 		continue
 	fi
