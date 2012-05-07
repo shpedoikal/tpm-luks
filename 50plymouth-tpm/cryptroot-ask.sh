@@ -57,12 +57,16 @@ fi
 
 # flock against other interactive activities
 { flock -s 9; 
-#    /bin/plymouth ask-for-password \
-#	--prompt "$prompt" \
-#	--command="/sbin/cryptsetup luksOpen -T1 $device $luksname"
     /bin/plymouth ask-for-password \
+        --number-of-tries=3 \
 	--prompt "$prompt" \
 	--command="/sbin/cryptroot-ask-tpm $device $luksname"
+
+    if [ $? -ne 0 ]; then
+	    /bin/plymouth ask-for-password \
+	           --prompt "$prompt" \
+	           --command="/sbin/cryptsetup luksOpen -T1 $device $luksname"
+    fi
 } 9>/.console.lock
 
 unset ask device luksname
