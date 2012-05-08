@@ -91,6 +91,20 @@ for NVINDEX in ${VIABLE_INDEXES}; do
 		continue
 	fi
 
+	echo "Using data read from NV index $NVINDEX"
+	# copy out all but the version byte, zeroize, delete
+	dd if=${TMPFS_MNT}/data.tmp of=${TMPFS_MNT}/data bs=1c skip=1 count=32 >/dev/null 2>&1
+	dd if=/dev/zero of=${TMPFS_MNT}/data.tmp bs=33 count=1 >/dev/null 2>&1
+	rm -f ${TMPFS_MNT}/data.tmp
+
+	$CRYPTSETUP luksOpen ${DEVICE} ${NAME} --key-file ${TMPFS_MNT}/data --keyfile-size 32
+	RC=$?
+	dd if=/dev/zero of=${TMPFS_MNT}/data bs=33 count=1 >/dev/null 2>&1
+	if [ ${RC} -ne 0 ]; then
+		continue
+	fi
+	${UMOUNT} ${TMPFS_MNT}
+
 	SUCCESS=1
 	break
 done
@@ -105,16 +119,6 @@ if [ ${SUCCESS} -eq 0 ]; then
 	${UMOUNT} ${TMPFS_MNT}
 	exit 255
 fi
-
-echo "Using data read from NV index $NVINDEX"
-# copy out all but the version byte, zeroize, delete
-dd if=${TMPFS_MNT}/data.tmp of=${TMPFS_MNT}/data bs=1c skip=1 count=32 >/dev/null 2>&1
-dd if=/dev/zero of=${TMPFS_MNT}/data.tmp bs=33 count=1 >/dev/null 2>&1
-rm -f ${TMPFS_MNT}/data.tmp
-
-$CRYPTSETUP luksOpen ${DEVICE} ${NAME} --key-file ${TMPFS_MNT}/data --keyfile-size 32
-dd if=/dev/zero of=${TMPFS_MNT}/data bs=33 count=1 >/dev/null 2>&1
-${UMOUNT} ${TMPFS_MNT}
 
 exit 0
 
