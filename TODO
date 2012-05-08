@@ -1,4 +1,11 @@
 
+TODO:
+
+- Improve interface between nv-perms creation, grub.conf and tpm_luks
+- Test kernel update
+
+-- completed ---
+
 50plymouth-tpm/cryptroot-ask-tpm.sh:
 - use a nv_info command to interrogate only relevant NV indexes to avoid
   DA logic
