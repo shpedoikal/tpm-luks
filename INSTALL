@@ -3,5 +3,5 @@ Workflow for migration after a BIOS/GrUB/Kernel/initramfs update
 
  # cp -pr 50plymouth-tpm /usr/share/dracut/modules.d
  # cd dract && ./dracut-key --force /boot/initramfs-XXX
- # ./gen_pcr_value
+ # ./gen_pcr_values
  # tpm_luks -m -p nv-perms-boot-entry-1.txt
