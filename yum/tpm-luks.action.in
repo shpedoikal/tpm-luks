@@ -13,9 +13,4 @@
 #
 # file matches cannot be used with removes b/c we don't have the info available
 
-#*:install:touch /tmp/$name-installed
-#zsh:remove:touch /tmp/zsh-removed
-#zsh:install:touch /tmp/zsh-installed-also
-#/bin/z*h:install:touch /tmp/bin-zsh-installed
-#z*h:any:touch /tmp/bin-zsh-any
-kernel:update:/usr/local/bin/yum-update-hook
+kernel:update:@sbindir@/tpm-luks-update-hook

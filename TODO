@@ -2,6 +2,7 @@
 TODO:
 
 - Improve interface between nv-perms creation, grub.conf and tpm_luks
+ o use 'grubby' for parsing grub.conf
 - Test kernel update
 
 -- completed ---
