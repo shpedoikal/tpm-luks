@@ -445,7 +445,8 @@ int main(int argc, char *argv[])
 			      break;
 			  case TPM_CAP_NV_INDEX:
 			      {
-				  TPM_PCR_INFO scratch_info;
+				  //char scratch_info[256];
+				  unsigned char scratch_info[256];
 				  uint32_t scratch_info_len;
 				  TPM_NV_DATA_PUBLIC ndp;
 				  uint32_t i, c;
@@ -479,21 +480,34 @@ int main(int argc, char *argv[])
 				  }
 
 				  if (c) {
-				      ret = TSS_GenPCRInfo(
-						*(uint32_t *)ndp.pcrInfoRead.pcrSelection.pcrSelect,
-						(unsigned char *)&scratch_info,
-						(uint32_t *)&scratch_info_len
-						);
+				      char pcrmap[4], *pf;
+
+				      memcpy(pcrmap, ndp.pcrInfoRead.pcrSelection.pcrSelect,
+					     ndp.pcrInfoRead.pcrSelection.sizeOfSelect);
+
+				 //     printf("\npcrmap: %02x%02x%02x%02x\n", pcrmap[0], pcrmap[1],
+				//	     pcrmap[2], pcrmap[3]);
+
+				      ret = TSS_GenPCRInfo(*(uint32_t *)pcrmap,
+							   scratch_info,
+							   &scratch_info_len);
 
 				      printf("\nRead PCR Composite: ");
 				      for (i = 0; i < 20; i++)
 					  printf("%02x", ndp.pcrInfoRead.digestAtRelease[i] & 0xff);
 				      printf("\n");
-
+#if 1
+				      pf = &scratch_info[5];
+				      printf("\nCurrent PCR composite: ");
+				      for (i = 0; i < 20; i++)
+					  //printf("%02x", scratch_info.digestAtRelease[i] & 0xff);
+					  printf("%02x", pf[i] & 0xff);
+				      printf("\n");
+#endif
 				      if (!ret) {
 					      printf("Matches current TPM state: ");
 
-					      if (!memcmp(&scratch_info.digestAtRelease,
+					      if (!memcmp(&scratch_info[5],
 							  &ndp.pcrInfoRead.digestAtRelease,
 							  20)) {
 						      printf("Yes\n");

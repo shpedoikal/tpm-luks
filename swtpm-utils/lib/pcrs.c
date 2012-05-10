@@ -599,6 +599,8 @@ uint32_t TPM_PcrRead(uint32_t pcrindex, unsigned char *pcrvalue)
    return 0;
    }
 
+#undef TPM_PCR_MASK_SIZE
+#define TPM_PCR_MASK_SIZE 3
 /****************************************************************************/
 /*                                                                          */
 /*  Create PCR_INFO structure using current PCR values                      */
@@ -654,12 +656,36 @@ uint32_t TSS_GenPCRInfo(uint32_t pcrmap, unsigned char *pcrinfo, uint32_t *len)
    for (i = 0; i < (TPM_PCR_MASK_SIZE * 8); ++i, work = work >> 1)
       {
       if ((work & 1) == 0) continue;
+      //printf("Reading PCR %d\n", i);
       ret = TPM_PcrRead(i,&(valarray[(j*TPM_HASH_SIZE)]));
+#if 0
+      {
+	      int k;
+	      printf("Value: ");
+	      for (k = 0; k < 20; k++)
+		      printf("%02x", valarray[(j*TPM_HASH_SIZE)+k]);
+	      printf("\n");
+      }
+#endif
       if (ret) return ret;
       ++j;
       }
-   myinfo.selsize = ntohs(TPM_PCR_MASK_SIZE);
-   valsize = ntohl(numregs * TPM_HASH_SIZE);
+   //myinfo.selsize = ntohs(TPM_PCR_MASK_SIZE);
+   //valsize = ntohl(numregs * TPM_HASH_SIZE);
+#if 1
+   myinfo.selsize = htons(TPM_PCR_MASK_SIZE);
+   valsize = htonl(numregs * TPM_HASH_SIZE);
+
+   //printf("numregs: %u\n", numregs);
+   //printf("selsize: %hu\nvalsize: %u\n", ntohs(myinfo.selsize), ntohl(valsize));
+#else
+   myinfo.selsize = TPM_PCR_MASK_SIZE;
+   valsize = numregs * TPM_HASH_SIZE;
+
+   printf("numregs: %u\n", numregs);
+   printf("selsize: %hu\nvalsize: %u\n", myinfo.selsize, valsize);
+#endif
+
    /* calculate composite hash */
    SHA1_Init(&sha);
    SHA1_Update(&sha,&myinfo.selsize,TPM_U16_SIZE);
@@ -670,6 +696,15 @@ uint32_t TSS_GenPCRInfo(uint32_t pcrmap, unsigned char *pcrinfo, uint32_t *len)
       SHA1_Update(&sha,&(valarray[(i*TPM_HASH_SIZE)]),TPM_HASH_SIZE);
       }
    SHA1_Final(myinfo.relhash,&sha);
+#if 0
+      {
+	      int k;
+	      printf("Ken's Composite Value: ");
+	      for (k = 0; k < 20; k++)
+		      printf("%02x", myinfo.relhash[k]);
+	      printf("\n");
+      }
+#endif
    memcpy(myinfo.crthash,myinfo.relhash,TPM_HASH_SIZE);
    memcpy(pcrinfo,&myinfo,sizeof (struct pcrinfo));
    *len = sizeof (struct pcrinfo);
