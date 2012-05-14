@@ -2,6 +2,8 @@ AC_INIT(tpm-luks, 0.1, key@linux.vnet.ibm.com)
 
 AM_INIT_AUTOMAKE()
 
+AC_PROG_CC
+
 CFLAGS="$CFLAGS -W -Wall -Werror -Wno-unused-parameter -Wsign-compare"
 AC_SUBST(CFLAGS)
 
