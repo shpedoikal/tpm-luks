@@ -8,6 +8,27 @@ PCRS="4 5 12 14"
 TMPFILE=
 SOURCE=/sys/kernel/security/tpm0/ascii_bios_measurements
 MENU=/boot/grub/menu.lst
+DESTDIR=$PWD
+
+function usage
+{
+	echo "usage ${0##/*} [options]"
+	echo "options:"
+	echo
+	echo "  -d <dir>  Optional directory to write files to (default is \$PWD)"
+}
+
+while getopts "d:" opt; do
+	case $opt in
+	d)
+		DESTDIR=$OPTARG
+		;;
+	*)
+		usage
+		exit 255
+		;;
+	esac
+done
 
 cleanup()
 {
@@ -75,21 +96,21 @@ for e in $(seq 0 $NUM_ENTRIES); do
 
 		case $PCR in
 		4)
-			echo "r $PCR $CURR_PCR" > nv-perms-boot-entry-$e.txt
+			echo "r $PCR $CURR_PCR" > $DESTDIR/nv-perms-boot-entry-$e.txt
 			#echo "w $PCR $CURR_PCR"
 			;;
 		5)
-			echo "r $PCR $CURR_PCR" >> nv-perms-boot-entry-$e.txt
+			echo "r $PCR $CURR_PCR" >> $DESTDIR/nv-perms-boot-entry-$e.txt
 			#echo "w $PCR $CURR_PCR"
 			;;
 		12)
 			CURR_PCR=$(chain_hashes -o $TMPFILE -h ${ROOTS[$e]} ${KERNELS[$e]} ${INITRDS[$e]} ${BOOT})
-			echo "r $PCR $CURR_PCR" >> nv-perms-boot-entry-$e.txt
+			echo "r $PCR $CURR_PCR" >> $DESTDIR/nv-perms-boot-entry-$e.txt
 			#echo "w $PCR $CURR_PCR"
 			;;
 		14)
 			CURR_PCR=$(chain_hashes -o $TMPFILE ${KERNEL_FILES[$e]} ${INITRD_FILES[$e]})
-			echo "r $PCR $CURR_PCR" >> nv-perms-boot-entry-$e.txt
+			echo "r $PCR $CURR_PCR" >> $DESTDIR/nv-perms-boot-entry-$e.txt
 			#echo "w $PCR $CURR_PCR"
 			;;
 		esac
