@@ -3,12 +3,15 @@ AC_INIT(tpm-luks, 0.1, key@linux.vnet.ibm.com)
 AM_INIT_AUTOMAKE()
 
 AC_PROG_CC
+AC_PROG_LIBTOOL
+AC_CONFIG_MACRO_DIR([m4])
 
-CFLAGS="$CFLAGS -W -Wall -Werror -Wno-unused-parameter -Wsign-compare"
+CFLAGS="$CFLAGS -W -Wall -Wno-unused-parameter -Wsign-compare"
 AC_SUBST(CFLAGS)
 
 AC_OUTPUT(Makefile \
 	  swtpm-utils/Makefile \
+	  swtpm-utils/lib/Makefile \
 	  yum/Makefile \
 	  dracut/Makefile \
 	  tpm-luks.spec)
