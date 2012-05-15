@@ -1,42 +1,46 @@
-Name:		tpm-luks
-Version:	0.1
+Name:		@PACKAGE@
+Version:	@VERSION@
 Release:	1%{?dist}
-Summary:	Utility for storing your LUKS key in TPM NVRAM
+Summary:	Utility for storing a LUKS key using a TPM
 
 Group:		Security
 License:	GPLv2
 #URL:
-Source0:	tpm-luks-%{version}.tar.gz
+Source0:	tpm-luks-%{version}.tar.xz
 BuildRoot:	%(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
 
 BuildRequires:	automake autoconf libtool
-Requires:	cryptsetup dracut
+Requires:	cryptsetup dracut gawk coreutils grubby tpm-tools trousers
 
 %description
-
+tpm-luks is a set of scripts to enable storage of a LUKS key in your TPM.
 
 %prep
 %setup -q
 
-
 %build
-%configure
+%configure --prefix=/use --libdir=%{_libdir}
 make %{?_smp_mflags}
 
-
 %install
-rm -rf $RPM_BUILD_ROOT
+[ "${RPM_BUILD_ROOT}" != "/" ] && [ -d ${RPM_BUILD_ROOT} ] && rm -rf ${RPM_BUILD_ROOT};
 make install DESTDIR=$RPM_BUILD_ROOT
 
-
 %clean
-rm -rf $RPM_BUILD_ROOT
-
+[ "${RPM_BUILD_ROOT}" != "/" ] && [ -d ${RPM_BUILD_ROOT} ] && rm -rf ${RPM_BUILD_ROOT};
 
 %files
 %defattr(-,root,root,-)
-%doc
-
-
+%doc INSTALL README TODO
+/etc/dracut.conf.d/tpm-luks.conf
+%{_bindir}/*
+#%{_bindir}/getcapability
+#%{_bindir}/nv_readvalue
+%{_sbindir}/*
+#%{_sbindir}/chain_hashes
+#%{_sbindir}/gen_pcr_values
+#%{_sbindir}/tpm_luks
+#%{_sbindir}/tpm-luks-update-hook
+/usr/share/dracut/modules.d/50plymouth-tpm/*
 
 %changelog
