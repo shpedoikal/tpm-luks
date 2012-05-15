@@ -1,19 +1,19 @@
 AC_INIT(tpm-luks, 0.1, key@linux.vnet.ibm.com)
 
-AM_INIT_AUTOMAKE()
+AM_INIT_AUTOMAKE([foreign 1.6])
 
-AC_PROG_CC
+AC_PROG_SED
 AC_PROG_LIBTOOL
 AC_CONFIG_MACRO_DIR([m4])
 
 CFLAGS="$CFLAGS -W -Wall -Wno-unused-parameter -Wsign-compare"
-AC_SUBST(CFLAGS)
+AC_PROG_CC
 
-AC_OUTPUT(Makefile \
-	  plymouth-tpm/Makefile \
-	  swtpm-utils/Makefile \
-	  swtpm-utils/lib/Makefile \
-	  yum/Makefile \
-	  yum/tpm-luks.action \
-	  dracut/Makefile \
-	  tpm-luks.spec)
+AC_CONFIG_FILES([Makefile \
+		 swtpm-utils/Makefile \
+		 swtpm-utils/lib/Makefile \
+		 yum/Makefile \
+		 dracut/Makefile \
+		 tpm-luks.spec])
+
+AC_OUTPUT
