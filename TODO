@@ -1,13 +1,21 @@
 
 TODO:
 
+- implement a separate "NV" initramfs for all NV manipulation
+ o create initramfs with all NV tools included
+ o lock all new NV areas for write to this initramfs state (or Owner write)
+ o write the operation to do on next reboot to a /boot/tpm-luks.conf, measure
+   in tgrub
+ o lock nvram for write to tpm-luks.conf state
+ o when NV initramfs comes up, parse tpm-luks.conf, act accordingly, reboot
+
 - Improve interface between nv-perms creation, grub.conf and tpm_luks
- o use 'grubby' for parsing grub.conf
-- Test kernel update
 
 -- completed ---
 
-50plymouth-tpm/cryptroot-ask-tpm.sh:
-- use a nv_info command to interrogate only relevant NV indexes to avoid
+o use 'grubby' for parsing grub.conf
+
+plymouth-tpm/cryptroot-ask-tpm.sh:
+o use a nv_info command to interrogate only relevant NV indexes to avoid
   DA logic
-- include DA reset command
+o include DA reset command
