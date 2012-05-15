@@ -10,8 +10,10 @@ CFLAGS="$CFLAGS -W -Wall -Wno-unused-parameter -Wsign-compare"
 AC_SUBST(CFLAGS)
 
 AC_OUTPUT(Makefile \
+	  plymouth-tpm/Makefile \
 	  swtpm-utils/Makefile \
 	  swtpm-utils/lib/Makefile \
 	  yum/Makefile \
+	  yum/tpm-luks.action \
 	  dracut/Makefile \
 	  tpm-luks.spec)
