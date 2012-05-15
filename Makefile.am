@@ -1,4 +1,4 @@
-SUBDIRS = swtpm-utils dracut yum
+SUBDIRS = swtpm-utils dracut
 
 plymouthdir=/usr/share/dracut/modules.d/50plymouth-tpm
 dist_plymouth_SCRIPTS=plymouth-tpm/install \
