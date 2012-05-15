@@ -12,7 +12,6 @@ AC_PROG_CC
 AC_CONFIG_FILES([Makefile \
 		 swtpm-utils/Makefile \
 		 swtpm-utils/lib/Makefile \
-		 yum/Makefile \
 		 dracut/Makefile \
 		 tpm-luks.spec])
 
