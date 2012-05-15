@@ -1,6 +1,2 @@
-SUBDIRS = swtpm-utils dracut yum plymouth-tpm .
-
-sbin_SCRIPTS=chain_hashes \
-	     tpm_luks \
-	     gen_pcr_values \
-	     tpm-luks-update-hook
+SUBDIRS = swtpm-utils dracut yum .
+dist_SUBDIRS = plymouth-tpm tpm-luks
