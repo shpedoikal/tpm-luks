@@ -4,6 +4,7 @@
 #
 # Author: Kent Yoder <yoder1@us.ibm.com>
 #
+AWK=/bin/awk
 CRYPTSETUP=/sbin/cryptsetup
 NV_INDEX_LIMIT=32
 TPM_LUKS_NVRAM_SIZE=33
@@ -102,8 +103,8 @@ function tpm_enabled
 
 function tpm_owned
 {
-	if [ ! /sys/class/misc/tpm0/device/owned ]; then
-		echo "Your TPM is unowned, please take ownership:\n"
+	if [ $(cat /sys/class/misc/tpm0/device/owned) -ne 1 ]; then
+		echo "Your TPM is unowned, please take ownership:"
 		tpm_takeownership || exit -1
 	fi
 
@@ -116,8 +117,8 @@ function tpm_owned
 #
 function find_luks_nv_indexes
 {
-	NV_SIZES=( $(tpm_nvinfo | awk '$1 ~ /Size/ { print $3 }') )
-	NV_INDEXES=( $(tpm_nvinfo | awk '$1$2 ~ /NVRAMindex/ { print $4 }') )
+	NV_SIZES=( $(tpm_nvinfo | ${AWK} '$1 ~ /Size/ { print $3 }') )
+	NV_INDEXES=( $(tpm_nvinfo | ${AWK} '$1$2 ~ /NVRAMindex/ { print $4 }') )
 	NUM_INDEXES=$(( ${#NV_INDEXES[@]} - 1 ))
 
 	for i in $(seq 0 ${NUM_INDEXES}); do
@@ -132,8 +133,10 @@ function find_luks_nv_indexes
 
 function find_free_nv_index
 {
-	NV_INDEX=0
-	NV_INDEXES=$(tpm_nvinfo | awk '$1$2 ~ /NVRAMindex/ { print $4 }')
+	# start at index 1, making the default first index to use 2. In,
+	# testing the Atmel TPM threw errors if NV index 1 was used
+	NV_INDEX=1
+	NV_INDEXES=$(tpm_nvinfo | ${AWK} '$1$2 ~ /NVRAMindex/ { print $4 }')
 
 	for i in ${NV_INDEXES}; do
 		if [ $(( $i )) -gt ${NV_INDEX_LIMIT} ]; then
@@ -150,7 +153,7 @@ function find_free_nv_index
 
 function find_luks_device
 {
-	NUM_DEVS=$(blkid -t TYPE=crypto_LUKS|awk -F: '{print $1}'|wc -l)
+	NUM_DEVS=$(blkid -t TYPE=crypto_LUKS|${AWK} -F: '{print $1}'|wc -l)
 
 	if [ $NUM_DEVS -eq 0 ]; then
 		echo "Couldn't find a LUKS mount!"
@@ -160,7 +163,7 @@ function find_luks_device
 		exit -1
 	fi
 
-	DEVICE="$(blkid -t TYPE=crypto_LUKS|awk -F: '{print $1}')"
+	DEVICE="$(blkid -t TYPE=crypto_LUKS|${AWK} -F: '{print $1}')"
 	if [ $? -ne 0 ]; then
 		DEVICE=
 		exit -1
@@ -236,7 +239,7 @@ function luks_add_key
 	KEY_SLOT=0
 
 	SLOTID=0
-	for S in $(cryptsetup luksDump ${DEVICE} | awk '$1$2 ~ /KeySlot/ {print $4}'); do
+	for S in $(cryptsetup luksDump ${DEVICE} | ${AWK} '$1$2 ~ /KeySlot/ {print $4}'); do
 		if [ "${S}" == "DISABLED" ]; then
 			KEY_SLOT=${SLOTID}
 			break

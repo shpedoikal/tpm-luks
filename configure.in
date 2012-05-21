@@ -1,4 +1,4 @@
-AC_INIT(tpm-luks, 0.1, key@linux.vnet.ibm.com)
+AC_INIT(tpm-luks, 0.4, key@linux.vnet.ibm.com)
 
 AM_INIT_AUTOMAKE([foreign 1.6])
 

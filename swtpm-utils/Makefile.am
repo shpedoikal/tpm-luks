@@ -38,7 +38,7 @@
 #################################################################################
 SUBDIRS = lib .
 
-AM_CFLAGS = -I/usr/linux/include -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -static -W -Wuninitialized -DTPM_POSIX -DTPM_V12 -DTPM_NV_DISK -DTPM_AES -DTPM_USE_TAG_IN_STRUCTURE=1
+AM_CFLAGS = -I/usr/linux/include -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -static -W -Wuninitialized -DTPM_POSIX -DTPM_V12 -DTPM_NV_DISK -DTPM_AES -DTPM_USE_TAG_IN_STRUCTURE=1 -DTPM_USE_CHARDEV
 
 INCLUDES =  -Ilib
 #LDADD = lib/.libs/libtpm.a /usr/local/ssl/lib/libcrypto.a

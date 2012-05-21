@@ -1,0 +1,30 @@
+#!/bin/bash -e
+set -x
+DRACUT=/sbin/dracut
+TMPDIR=$(mktemp -d /tmp/${0##*/}-XXXXXX)
+KERNEL=$(grubby --default-kernel)
+INITRAMFS="${KERNEL//vmlinuz/initramfs}-tpm-luks.img"
+TITLE='Linux (TPM LUKS)'
+
+function cleanup
+{
+	rm -rf ${TMPDIR}
+}
+
+trap cleanup EXIT
+
+grubby --make-default --copy-default --title "${TITLE}" --add-kernel=${KERNEL} --initrd=${INITRAMFS}
+
+# create a new initramfs based on the newly installed one. We're not
+# overwriting an old initramfs here, so --force isn't needed
+#$DRACUT -a plymouth-tpm -o plymouth -i ${TMPDIR} /usr/bin ${INITRAMFS}
+$DRACUT -a plymouth-tpm -o plymouth ${INITRAMFS}
+
+# generate new PCR values based off the new kernel/initramfs binaries
+gen_pcr_values -d ${TMPDIR} || exit -1
+
+# grubby adds us at the top, so we'll migrate based on the PCRs produced
+# for menu.lst entry 0
+tpm_luks -m -p ${TMPDIR}/nv-perms-boot-entry-0.txt
+
+exit $?

@@ -14,4 +14,5 @@ dist_plymouth_SCRIPTS=plymouth-tpm/install \
 sbin_SCRIPTS=tpm-luks/chain_hashes \
 	     tpm-luks/tpm_luks \
 	     tpm-luks/gen_pcr_values \
-	     tpm-luks/tpm-luks-update-hook
+	     tpm-luks/tpm-luks-update \
+	     tpm-luks/tpm-luks-init

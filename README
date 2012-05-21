@@ -1,7 +1,16 @@
 
-Workflow for migration after a BIOS/GrUB/Kernel/initramfs update
+== tpm-luks ==
 
- # cp -pr 50plymouth-tpm /usr/share/dracut/modules.d
- # cd dract && ./dracut-key --force /boot/initramfs-XXX
- # ./gen_pcr_values
- # tpm_luks -m -p nv-perms-boot-entry-1.txt
+ tpm-luks is a set of scripts to help in storing a LUKS key in TPM NVRAM.
+The primary goal of using these scripts is to lock your rootfs LUKS key into
+the TPM such that the TPM will not release it unless you're running a trusted
+kernel/initramfs combo.
+
+ The assumptions made by this package are:
+
+ You've checked the "encrypt" checkbox as part of the install for your fedora/
+RHEL system, so the rootfs is encrypted. You can check if this is the case
+using:
+
+  blkdid -t TYPE=crypto_LUKS
+

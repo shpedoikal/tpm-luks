@@ -37,7 +37,7 @@
 #										#
 #################################################################################
 
-AM_CFLAGS = -I/usr/linux/include -Wall -ggdb -Wuninitialized -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -W -DTPM_POSIX -DTPM_V12 -DTPM_NV_DISK -DTPM_AES -DTPM_USE_TAG_IN_STRUCTURE=1
+AM_CFLAGS = -I/usr/linux/include -Wall -ggdb -Wuninitialized -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -W -DTPM_POSIX -DTPM_V12 -DTPM_NV_DISK -DTPM_AES -DTPM_USE_TAG_IN_STRUCTURE=1 -DTPM_USE_CHARDEV
 noinst_LTLIBRARIES = libtpm.la
 
 
