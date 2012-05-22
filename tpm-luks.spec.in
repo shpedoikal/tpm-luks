@@ -22,7 +22,8 @@ tpm-luks is a set of scripts to enable storage of a LUKS key in your TPM.
 %setup -q
 
 %build
-%configure --prefix=/use --libdir=%{_libdir}
+autoreconf -ivf
+%configure --prefix=/usr --libdir=%{_libdir}
 make %{?_smp_mflags}
 
 %install
@@ -34,7 +35,7 @@ make install DESTDIR=$RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root,-)
-%doc INSTALL README TODO
+%doc README TODO
 %config /etc/dracut.conf.d/tpm-luks.conf
 %{_bindir}/*
 #%{_bindir}/getcapability
@@ -46,5 +47,9 @@ make install DESTDIR=$RPM_BUILD_ROOT
 #%{_sbindir}/tpm-luks-update-hook
 %dir /usr/share/dracut/modules.d/50plymouth-tpm
 /usr/share/dracut/modules.d/50plymouth-tpm/*
+%dir /etc/yum/post-actions
+/etc/yum/post-actions/tpm-luks.action
+%config /etc/yum/pluginconf.d/post-transaction-actions.conf
+/usr/lib/yum-plugins/post-transaction-actions.py*
 
 %changelog
