@@ -370,23 +370,23 @@ ACTION="x"
 while getopts "kco:mrw:s:i:d:p:qh" opt; do
 	case $opt in
 	k)
-		[[ ${ACTION} = "x" ]] && ACTION="kill" || usage && exit 255
+		[[ "${ACTION}" == "x" ]] && ACTION="kill" || (usage && exit 255)
 		;;
 	c)
-		[[ ${ACTION} = "x" ]] && ACTION="create" || usage && exit 255
+		[[ "${ACTION}" == "x" ]] && ACTION="create" || (usage && exit 255)
 		;;
 	o)
-		[[ ${ACTION} = "x" ]] && ACTION="open" || usage && exit 255
+		[[ "${ACTION}" == "x" ]] && ACTION="open" || (usage && exit 255)
 		NAME=${OPTARG}
 		;;
 	m)
-		[[ ${ACTION} = "x" ]] && ACTION="migrate" || usage && exit 255
+		[[ "${ACTION}" == "x" ]] && ACTION="migrate" || (usage && exit 255)
 		;;
 	r)
-		[[ ${ACTION} = "x" ]] && ACTION="retrieve" || usage && exit 255
+		[[ "${ACTION}" == "x" ]] && ACTION="retrieve" || (usage && exit 255)
 		;;
 	w)
-		[[ ${ACTION} = "x" ]] && ACTION="write" || usage && exit 255
+		[[ "${ACTION}" == "x" ]] && ACTION="write" || (usage && exit 255)
 		UIDCHECK=0
 		TMPFS_KEYFILE=${OPTARG}
 		;;
@@ -473,6 +473,7 @@ elif [ "${ACTION}" == "kill" ]; then
 	nv_get
 	luks_kill
 	wipe_file ${TMPFS_KEYFILE}
+	exit_hook
 else
 	usage
 	exit 1
