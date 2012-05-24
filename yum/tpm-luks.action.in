@@ -13,4 +13,4 @@
 #
 # file matches cannot be used with removes b/c we don't have the info available
 
-kernel:update:@sbindir@/tpm-luks-update
+kernel:any:@sbindir@/tpm-luks-update
