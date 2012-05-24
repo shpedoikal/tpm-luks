@@ -4,7 +4,7 @@ DRACUT=/sbin/dracut
 TMPDIR=$(mktemp -d /tmp/${0##*/}-XXXXXX)
 KERNEL=$(grubby --default-kernel)
 INITRAMFS="${KERNEL//vmlinuz/initramfs}-tpm-luks.img"
-TITLE='Linux (TPM LUKS)'
+TITLE="Linux ${KERNEL#/boot/vmlinuz-*} (TPM LUKS)"
 
 function cleanup
 {
