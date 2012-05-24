@@ -4,7 +4,7 @@ DRACUT=/sbin/dracut
 TMPDIR=$(mktemp -d /tmp/${0##*/}-XXXXXX)
 KERNEL=$(grubby --default-kernel)
 INITRAMFS="${KERNEL//vmlinuz/initramfs}-tpm-luks.img"
-TITLE='Linux (TPM LUKS)'
+TITLE="Linux ${KERNEL#/boot/vmlinuz-*} (TPM LUKS)"
 
 function cleanup
 {
@@ -13,18 +13,39 @@ function cleanup
 
 trap cleanup EXIT
 
+if [ ! -n "${KERNEL}" ]; then
+	echo "Error using grubby to parse your bootloader config. Aborting."
+	echo "If the output of 'grubby --default-kernel' is correct, re-run this script"
+	exit 255
+fi
+
 grubby --make-default --copy-default --title "${TITLE}" --add-kernel=${KERNEL} --initrd=${INITRAMFS}
+if [ $? -ne 0 ]; then
+	echo "Error using grubby to modify your bootloader config. Aborting."
+	echo "Failing command:  \"grubby --make-default --copy-default --title "${TITLE}" --add-kernel=${KERNEL} --initrd=${INITRAMFS}\""
+	exit 255
+fi
+
 
 # create a new initramfs based on the newly installed one. We're not
 # overwriting an old initramfs here, so --force isn't needed
-#$DRACUT -a plymouth-tpm -o plymouth -i ${TMPDIR} /usr/bin ${INITRAMFS}
 $DRACUT -a plymouth-tpm -o plymouth ${INITRAMFS}
+if [ $? -ne 0 ]; then
+	echo "Error using dracut to create new initramfs. Aborting."
+	echo "Your bootloader config contains an invalid entry (0)."
+	exit 255
+fi
 
 # generate new PCR values based off the new kernel/initramfs binaries
-gen_pcr_values -d ${TMPDIR} || exit -1
+gen_pcr_values -d ${TMPDIR}
+if [ $? -ne 0 ]; then
+	echo "gen_pcr_values has failed. Aborting. Is securityfs mounted?"
+	echo "The file /sys/kernel/security/tpm0/ascii_bios_measurements should exist and be readable."
+	exit 255
+fi
 
-# grubby adds us at the top, so we'll migrate based on the PCRs produced
-# for menu.lst entry 0
+# grubby's new boot entry is the default, so we'll migrate based on the PCRs
+# produced for menu.lst entry 0
 tpm_luks -c -p ${TMPDIR}/nv-perms-boot-entry-0.txt
 
 exit $?
