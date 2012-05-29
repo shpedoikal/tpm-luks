@@ -22,7 +22,6 @@ tpm-luks is a set of scripts to enable storage of a LUKS key in your TPM.
 %setup -q
 
 %build
-autoreconf -ivf
 %configure --prefix=/usr --libdir=%{_libdir}
 make %{?_smp_mflags}
 
@@ -53,3 +52,5 @@ make install DESTDIR=$RPM_BUILD_ROOT
 /usr/lib/yum-plugins/post-transaction-actions.py*
 
 %changelog
+* Tue May 29 2012 Kent Yoder <key@linux.vnet.ibm.com>
+- Initial drop of version 0.6
