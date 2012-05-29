@@ -1,5 +1,5 @@
 #!/bin/bash -e
-set -x
+#set -x
 DRACUT=/sbin/dracut
 TMPDIR=$(mktemp -d /tmp/${0##*/}-XXXXXX)
 KERNEL=$(grubby --default-kernel)
