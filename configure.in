@@ -1,4 +1,4 @@
-AC_INIT(tpm-luks, 0.6, key@linux.vnet.ibm.com)
+AC_INIT(tpm-luks, 0.7, key@linux.vnet.ibm.com)
 
 AM_INIT_AUTOMAKE([foreign 1.6])
 
@@ -8,6 +8,9 @@ AC_CONFIG_MACRO_DIR([m4])
 
 CFLAGS="$CFLAGS -W -Wall -Wno-unused-parameter -Wsign-compare"
 AC_PROG_CC
+
+AM_CONDITIONAL([FEDORA17], [grep -q "Fedora release 17" /etc/*-release])
+AM_CONDITIONAL([RHEL6], [egrep -q "Red Hat Enterprise Linux.*release 6" /etc/*-release])
 
 AC_CONFIG_FILES([Makefile \
 		 swtpm-utils/Makefile \

@@ -1,15 +1,29 @@
 SUBDIRS = swtpm-utils dracut
 
+if FEDORA17
+plymouthdir=/usr/lib/dracut/modules.d/90crypt-tpm
+dist_plymouth_SCRIPTS=dracut/Fedora17/crypt-tpm/cryptroot-ask.sh \
+		      dracut/Fedora17/crypt-tpm/cryptroot-ask-tpm.sh \
+		      dracut/Fedora17/crypt-tpm/crypt-cleanup.sh \
+		      dracut/Fedora17/crypt-tpm/crypt-lib.sh \
+		      dracut/Fedora17/crypt-tpm/module-setup.sh \
+		      dracut/Fedora17/crypt-tpm/parse-crypt.sh \
+		      dracut/Fedora17/crypt-tpm/parse-keydev.sh \
+		      dracut/Fedora17/crypt-tpm/probe-keydev.sh
+endif
+
+if RHEL6
 plymouthdir=/usr/share/dracut/modules.d/50plymouth-tpm
-dist_plymouth_SCRIPTS=plymouth-tpm/install \
-		      plymouth-tpm/check \
-		      plymouth-tpm/plymouth-newroot.sh \
-		      plymouth-tpm/cryptroot-ask.sh \
-		      plymouth-tpm/installkernel \
-		      plymouth-tpm/plymouth-populate-initrd \
-		      plymouth-tpm/cryptroot-ask-tpm.sh \
-		      plymouth-tpm/plymouth-emergency.sh \
-		      plymouth-tpm/plymouth-pretrigger.sh
+dist_plymouth_SCRIPTS=dracut/RHEL6/plymouth-tpm/install \
+		      dracut/RHEL6/plymouth-tpm/check \
+		      dracut/RHEL6/plymouth-tpm/plymouth-newroot.sh \
+		      dracut/RHEL6/plymouth-tpm/cryptroot-ask.sh \
+		      dracut/RHEL6/plymouth-tpm/installkernel \
+		      dracut/RHEL6/plymouth-tpm/plymouth-populate-initrd \
+		      dracut/RHEL6/plymouth-tpm/cryptroot-ask-tpm.sh \
+		      dracut/RHEL6/plymouth-tpm/plymouth-emergency.sh \
+		      dracut/RHEL6/plymouth-tpm/plymouth-pretrigger.sh
+endif
 
 sbin_SCRIPTS=tpm-luks/chain_hashes \
 	     tpm-luks/tpm_luks \
