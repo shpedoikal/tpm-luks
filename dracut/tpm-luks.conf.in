@@ -4,10 +4,10 @@
 #dracutmodules+=""
 
 # Dracut modules to omit
-omit_dracutmodules+="plymouth"
+omit_dracutmodules+="@DRACUT_MODULE_NAME@"
 
 # Dracut modules to add to the default
-add_dracutmodules+="plymouth-tpm"
+add_dracutmodules+="@DRACUT_MODULE_NAME@-tpm"
 
 # additional kernel modules to the default
 #add_drivers+=""

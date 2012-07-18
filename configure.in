@@ -9,13 +9,25 @@ AC_CONFIG_MACRO_DIR([m4])
 CFLAGS="$CFLAGS -W -Wall -Wno-unused-parameter -Wsign-compare"
 AC_PROG_CC
 
-AM_CONDITIONAL([FEDORA17], [grep -q "Fedora release 17" /etc/*-release])
-AM_CONDITIONAL([RHEL6], [egrep -q "Red Hat Enterprise Linux.*release 6" /etc/*-release])
+if `grep -q "Fedora release 17" /etc/*-release`; then
+	AM_CONDITIONAL([FEDORA17], true)
+	AM_CONDITIONAL([RHEL6], false)
+	AC_SUBST(DRACUT_MODULE_NAME, [crypt])
+elif `egrep -q "Red Hat Enterprise Linux.*release 6" /etc/*-release`; then
+	AM_CONDITIONAL([RHEL6], true)
+	AM_CONDITIONAL([FEDORA17], false)
+	AC_SUBST(DRACUT_MODULE_NAME, [plymouth])
+else
+	echo "This doesn't applear to be a supported platform. Supported platforms are:"
+	echo "   Fedora 17"
+	echo "   RHEL 6"
+fi
 
 AC_CONFIG_FILES([Makefile \
 		 swtpm-utils/Makefile \
 		 swtpm-utils/lib/Makefile \
 		 dracut/Makefile \
+		 dracut/tpm-luks.conf \
 		 tpm-luks.spec])
 
 AC_OUTPUT
