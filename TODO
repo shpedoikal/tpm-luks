@@ -10,12 +10,3 @@ TODO:
  o when NV initramfs comes up, parse tpm-luks.conf, act accordingly, reboot
 
 - Improve interface between nv-perms creation, grub.conf and tpm_luks
-
--- completed ---
-
-o use 'grubby' for parsing grub.conf
-
-plymouth-tpm/cryptroot-ask-tpm.sh:
-o use a nv_info command to interrogate only relevant NV indexes to avoid
-  DA logic
-o include DA reset command
