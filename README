@@ -1,259 +1,54 @@
-## page was renamed from yoder1@us.ibm.com/LockingInitRAMFS
 
-[[TableOfContents]]
+Storing your LUKS key in TPM NVRAM
 
-= Locking a LUKS Key in the TPM =
+Fedora 17:
 
-= Our Machine Config =
+1. Install the tpm device driver, which is in the kernel-modules-extra package.
+Load the module:
+ # modprobe tpm_tis
 
- * A standard configuration:
-    * GrUB installed in the MBR
-    * unencrypted /boot, containing kernels and initramfs's
-    * encrypted /root, using cryptsetup/LUKS
-
- * Boot-time control flow
-    * BIOS loads GrUB
-    * GrUB prompts for kernel selection
-    * Kernel decompresses, expands initramfs and runs {initramfs}/init
-    * initramfs code prompts for LUKS password
-    * LUKS password used to generate LUKS key and decrypt the rootfs
-    * /sbin/init runs, system comes up
-
-= An Attack: Malicious kernel/initramfs =
-
- * Attacker boots machine from USB, copies a malicious initramfs/kernel into unencrypted /boot
-    * At next boot, user unknownlingly hands his rootfs LUKS password to the malicious code!
-
- * User is completely unaware
-    * rootfs can be decrypted as normal and system is booted, leaving him none the wiser
-    * Attacker now has access to any data on the machine
-
-= A Solution: Lock the LUKS key using a CRTM =
-
- * We need to know that the initramfs and kernel we're using are in a known state '''as a pre-requisite to unlocking the rootfs'''
-
- * But what about a malicious GrUB?
-    * We need to know that GrUB hasn't been altered to inject malicious code
-    * We need to know that GrUB's config isn't booting off some other device
-
- * We need to include every piece of software we care about (read: exploitable) in the CRTM (Core Root of Trust for Measurement)
-    * BIOS state
-    * MBR
-    * GrUB config data
-    * Kernel command-line
-    * Kernel and initramfs images themselves
-
- * Lock the rootfs key in the TPM's NVRAM and only allow reading it when:
-    * Correct password is provided, and
-    * The CRTM (as we define it) is in a known state
-
-= CRTM and TPM background =
-
- * CRTM Boot-time control flow
-    * BIOS measures itself into the TPM, begins execution
-    * BIOS measures MBR into the TPM, execution jumps to MBR
-    * MBR measures GrUB stages, prompts for kernel selection
-    * Selected kernel's grub.conf lines are extended into the TPM
-    * Kernel image and initramfs images are extended into the TPM
-    * Kernel decompresses, expands initramfs and runs {initramfs}/init
-    * init prompts for TPM NVRAM password, TPM releases LUKS key
-    * rootfs is decrypted, /sbin/init is run
-
- * PCR use for this task:
-   * 4: (IPL code) Extended by BIOS, with the MBR extended last
-   * 5: (IPL code - Config and data) Extended by BIOS, with the MBR extended last
-   * 12: Extended by Trusted GrUB with the boot options
-   * 14: Extended by Trusted GrUB with kernel, initramfs
-
- * LUKS key needs to be locked to PCRS 4, 5, 12 and 14
-
-= Components =
-
- * Trusted GrUB: http://sourceforge.net/projects/trustedgrub/
-    * Reqired to extend the CRTM to the kernel/initramfs
- * TrouSerS: http://sourceforge.net/projects/trousers
-    * Required for TPM setup and to read/write from TPM NVRAM
- * IBM's software tpm utilities: https://sourceforge.net/projects/ibmswtpm/
-    * Required for low-level TPM interactions in the initramfs
- * YUM
-    * Modifications required to update the NVRAM secret when a new kernel is installed
- * dracut
-    * Modifications required to prompt for TPM NVRAM password instead of LUKS password
- * Set of shell scripts for the glue
-
-= Setup =
-
-(Assuming the starting point is a machine matching Our Machine Config, above)
-
- * Install
-    * Trusted GrUB
-    * trousers
-    * tpm-tools (requires patches not yet upstream)
-    * YUM hooks
-    * New dracut module 'plymouth-tpm'
-    * tpm-luks script package
-
- * 1st Config
-    * Install Trusted GrUB and reboot
-    * Use cryptsetup to determine which LUKS key slot contains your password-based key. Save off this information.
-    * Run dracut
-      * /etc/dracut.conf.d/tpm-luks.conf is read, including new plymouth-tpm module
-      * Writes out new initramfs including the plymouth-tpm module
-    * Run gen_pcr_value
-      * Parses BIOS event log and each kernel/initramfs combo listed in grub.conf
-      * Output is a set of files (nv-perms-X), 1 per grub.conf entry
-      * User chooses which grub.conf entry she wants included in the CRTM boot
-    * Run tpm_luks -c -p nv-perms-X
-      * Generates a new LUKS key
-      * Writes new key into TPM NVRAM area, locked to PCRS specified in nv-perms
-      * Inserts new key into an open LUKS key slot
-    * reboot for initial CRTM boot
-
- * Initial CRTM boot
-   * User is prompted to enter her TPM NVRAM password, did it work?
-     * Hit 'ESC' to see output from plymouth-tpm module
-     * The status of each attempted read from NVRAM is printed
-     * PCRS might not match
-     * password could be bad
-     * TPM's dictionary attack logic could have engaged!
-   * Fallback is still available
-     * The password-based LUKS key is still in a LUKS key slot
-     * After 3 failed attempts at reading from TPM NVRAM, the LUKS password prompt is used '''(for now! See below)'''
-
- * Key escrow
-   * Now you're up and running in the CRTM state
-   * backup the new LUKS key:
-     * Run tpm_luks -r
-     * Encrypt the resulting key file and put it somewhere safe
-
- * Removing the password-based LUKS key
-   * Note that keeping the password-based LUKS key enables the attack vector!
-     * Malicious kernel/initramfs is installed, booted
-     * TPM errors are generated because PCRs don't match
-     * User is prompted for fallback password
-     * '''If it still unlocks the rootfs, we're no safer!!'''
-   * Use cryptsetup to remove the password-based key slot
-
- * Kernel package update time
-   * A new kernel is released by the distro - we need to add it to the CRTM
-   * A YUM post-transaction hook was installed for this purpose
-   * After the kernel package is installed, a script is run
-      * Script calls gen_pcr_value to interrogate the new grub.conf
-      * Sript runs tpm_luks -m -p nv-perms-X to migrate the key to new NVRAM area which is locked to the new CRTM PCR values
-
-= Extending this solution =
- * Integrate key escrow into tpm_luks -c
- * Research a more flexible way to choose which CRTM is right for you
- * Research use of a special stripped-down Linux rootfs with no networking/USB/etc for more secure NV manipulation
-   * The default config allows writing of NV space with password only (no PCRs are used). A sniffed password would allow an attacker to overwrite NV space.
-
-= Gory details =
-
-= RHEL 6.2 x86_64 Setup steps =
-
- 1. When you install, check 'Encrypt System' when asked. This should configure your system such that you're prompted during boot up for your rootfs password.
- 1. Run the following commands to determine which partition you have encrypted with LUKS and dump your LUKS key slot info.  Save this info so that later you can remove your password-based LUKS key.
-{{{
- # blkid -t TYPE=crypto_LUKS|awk -F: '{print $1}'
- <device is printed here>
- # cryptsetup luksDump <device> > saveme.txt
-}}}
-If you have just 1 partition encrypted, you should see Key Slot 0 marked as ENABLED and the rest as DISABLED. tpm-luks will use one of the DISABLED slots when you run tpm-luks-init (below).
- 1.#3 After install, add these dependencies
-{{{
- # yum install openssl-devel gettext-devel automake autoconf libtool git make glibc-devel wget glibc-devel.i686 libgcc.i686
-}}}
- 1.#4 Get and install trusted GrUB:
-{{{
- # wget http://downloads.sourceforge.net/project/trustedgrub/TrustedGRUB-1.1.5/TrustedGRUB-1.1.5.tar.gz
- # tar zxvf TrustedGRUB-1.1.5.tar.gz
- # cd TrustedGRUB-1.1.5
- # ./build_tgrub.sh -s
-}}}
-You should see install steps for Trusted GrUB here. If you forgot to install the 32bit glibc-devel and libgcc above, you'll mysteriously see just a couple status messages.
- 1.#5 Continue installing tgrub:
-{{{
- # cp default /boot/grub
- # cd TrustedGRUB-1.1.5
- # make install
- # rm -rf /boot/grub/stage*
- # rm -rf /boot/grub/*1_5
- # cp stage1/stage1 /boot/grub
- # cp stage2/stage2 /boot/grub
- # ./grub/grub --no-floppy
- grub> root (hd0,0)
- grub> setup (hd0)
- grub> quit
-}}}
- 1.#6 Prep the system for a TPM-enabled boot by addinf a securityfs mount to /etc/fstab:
-{{{
- # echo "securityfs              /sys/kernel/security    securityfs defaults 0 0" >> /etc/fstab
-}}}
-Reboot. You should see TrustedGrUB with your new menu entry and booting from that should prompt you for your LUKS password as usual.
- 1.#7 Get upstream trousers, tpm-tools
-{{{
- # git clone git://trousers.git.sourceforge.net/gitroot/trousers/trousers trousers.git
- # git clone git://trousers.git.sourceforge.net/gitroot/trousers/tpm-tools tpm-tools.git
-}}}
- 1.#8 Build and install trousers and tpm-tools. Note that if you're installing into a 32bit system, libdir should be /usr/lib.
-{{{
- # cd trousers.git
- # sh bootstrap.sh && ./configure --prefix=/usr --libdir=/usr/lib64 && make && make install
- # cd ../tpm-tools.git
- # sh bootstrap.sh && ./configure --prefix=/usr --libdir=/usr/lib64 && make && make install
-}}}
-Start the trousers daemon, and make sure it starts on each boot:
-{{{
+2. Install tpm-luks, tpm-tools >= 1.3.8, trousers >= 0.3.9. Available at
+   sf.net/projects/trousers. Start the tcsd:
  # tcsd
- # echo "tcsd" >> /etc/rc.local
-}}}
- 1.#9 Install the tpm-luks rpm:
-{{{
- # rpm -ivh tpm-luks-XXX.rpm
-}}}
- 1.#10 Run tpm-luks-init:
-{{{
- # tpm-luks-init
-}}}
-tpm-luks-init does several things:
- a. Call grubby to create a new GrUB menu.lst entry for the current kernel/initramfs combo[[BR]]
- a. Use dracut to create the new initramfs that understands how to talk to the TPM[[BR]]
- a. Generate the PCR values needed to lock your new LUKS key in the TPM[[BR]]
- a. Generate a new LUKS AES-256 key[[BR]]
- a. Store the new key in TPM NVRAM[[BR]]
- a. Insert the key into a free LUKS key slot[[BR]]
-[[BR]]
- 1.#11 If all goes well, the last message you'll see will be something like:
-{{{
- You will now be prompted to enter any valid LUKS passphrase in order to store
- the new TPM NVRAM secret in LUKS key slot 3:
 
- Enter any passphrase:
+ You can test if trousers and tpm-tools are working ok by running tpm_nvinfo.
+If it errors out with missing library errors, follow these steps:
 
- Using NV index 4 for device /dev/sda2
-}}}
-Which means that the new TPM-based key is stored in TPM NVRAM index 4 and can be used to unlock /dev/sda2 from LUKS key slot 3.
- 1.#12 At this point, you're ready for your first TPM-enabled boot! Reboot. As the system comes up make sure you select the "(TPM LUKS)" boot entry in tGrUB. It should be the default. You should see a prompt for your TPM NVRAM password:
-{{{
-  TPM NVRAM password for /dev/sda2 (luks-xxx...):
-}}}
-Enter the same NVRAM password you entered during tpm-luks-init. If something went wrong, you can hit ESC to see any error messages. If the retrieval from TPM NVRAM fails 3 times, the script will fall back to a prompt for your password-based LUKS secret. This can still be used to decrypt your rootfs at this point.
+ During the trousers build:
+ $ ./configure --prefix=/usr
+or
+ After the trousers build:
+ $ echo "/usr/local/lib" >> /etc/ld.so.conf
+ # ldconfig
 
-As long as everything went well, you're now up and running on your decrypted rootfs. Time to backup and then ditch the old password-based LUKS secret.
+3. Determine your LUKS encrypted partions:
+ $ blkid -t TYPE=crypto_LUKS
+ /dev/sda2: UUID="4cb97e1f-b921-4f1a-bd86-032831b277af" TYPE="crypto_LUKS"
 
- 1.#13 Backup your LUKS keyslots:
-{{{
- # cryptsetup luksHeaderBackup <device> --header-backup-file luks-header-backup.dat
-}}}
-Store the backup in a safe place, off this machine. Reinstalling the header will re-enable the password based key slot we're about to kill.
+4. Add a new LUKS key to a key slot and the TPM:
+# tpm_luks -c -d /dev/sda2
+Enter a new TPM NV area password: 
+Re-enter the new TPM NV area password: 
+Enter your TPM owner password: 
+Successfully wrote 33 bytes at offset 0 to NVRAM index 0x2 (2).
+You will now be prompted to enter any valid LUKS passphrase in order to store
+the new TPM NVRAM secret in LUKS key slot 1:
 
- 1.#14 In order to delete the password-based key slot, we need to provide cryptsetup with the TPM NVRAM secret. To do this, we'll use the tpm_luks script:
-{{{
- # tpm_luks -k -s <key slot>
-}}}
-At this point, the only secret in a LUKS key slot is the one stored in the TPM.
+Enter any passphrase: 
+Using NV index 2 for device /dev/sda2
 
- 1.#15 Kernel package updates: When its time to run yum update, updates of the kernel package will require generating new PCR values that match it (and the new initramfs) and to store your LUKS secret in a new NVRAM area tied to those PCRS. For this, the yum plugin "post-transaction-actions" is included with the tpm-luks rpm.  Its automatically configured to run the script tpm-luks-update whenever the kernel package is modified. Whenever you run 'yum update', if the kernel package is updated, you will be prompted for your current TPM NVRAM password and your TPM owner password to create the new NVRAM area.
+5. Add code to query the TPM to the initramfs:
+# dracut /boot/initramfs-3.4.4-5.fc17.x86_64-tpm-luks.img
 
+6. Create a new boot entry that uses the new initramfs:
+# vim /boot/grub2/grub.cfg
 
-EOF
+(The only change you need to make here is to copy the current boot entry
+for Fedora and change the initramfs path to 
+/boot/initramfs-3.4.4-5.fc17.x86_64-tpm-luks.img)
+
+From https://fedoraproject.org/wiki/GRUB_2:
+"It is safe to directly edit /boot/grub2/grub.cfg in Fedora."
+
+7. Reboot
+
