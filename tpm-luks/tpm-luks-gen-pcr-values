@@ -81,9 +81,9 @@ for e in $(seq 0 $NUM_ENTRIES); do
 		j=0
 		for m in $MEASUREMENTS; do
 			if [ $j -eq 0 ]; then
-				CURR_PCR=$(chain_hashes -o $TMPFILE -h $m)
+				CURR_PCR=$(tpm-luks-chain-hashes -o $TMPFILE -h $m)
 			else
-				CURR_PCR=$(chain_hashes -f $TMPFILE -o $TMPFILE -h $m)
+				CURR_PCR=$(tpm-luks-chain-hashes -f $TMPFILE -o $TMPFILE -h $m)
 			fi
 
 			j=$(( $j + 1 ))
@@ -104,12 +104,12 @@ for e in $(seq 0 $NUM_ENTRIES); do
 			#echo "w $PCR $CURR_PCR"
 			;;
 		12)
-			CURR_PCR=$(chain_hashes -o $TMPFILE -h ${ROOTS[$e]} ${KERNELS[$e]} ${INITRDS[$e]} ${BOOT})
+			CURR_PCR=$(tpm-luks-chain-hashes -o $TMPFILE -h ${ROOTS[$e]} ${KERNELS[$e]} ${INITRDS[$e]} ${BOOT})
 			echo "r $PCR $CURR_PCR" >> $DESTDIR/nv-perms-boot-entry-$e.txt
 			#echo "w $PCR $CURR_PCR"
 			;;
 		14)
-			CURR_PCR=$(chain_hashes -o $TMPFILE ${KERNEL_FILES[$e]} ${INITRD_FILES[$e]})
+			CURR_PCR=$(tpm-luks-chain-hashes -o $TMPFILE ${KERNEL_FILES[$e]} ${INITRD_FILES[$e]})
 			echo "r $PCR $CURR_PCR" >> $DESTDIR/nv-perms-boot-entry-$e.txt
 			#echo "w $PCR $CURR_PCR"
 			;;

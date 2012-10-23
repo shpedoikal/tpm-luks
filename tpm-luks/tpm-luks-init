@@ -37,15 +37,15 @@ if [ $? -ne 0 ]; then
 fi
 
 # generate new PCR values based off the new kernel/initramfs binaries
-gen_pcr_values -d ${TMPDIR}
+tpm-luks-gen-pcr-values -d ${TMPDIR}
 if [ $? -ne 0 ]; then
-	echo "gen_pcr_values has failed. Aborting. Is securityfs mounted?"
+	echo "tpm-luks-gen-pcr-values has failed. Aborting. Is securityfs mounted?"
 	echo "The file /sys/kernel/security/tpm0/ascii_bios_measurements should exist and be readable."
 	exit 255
 fi
 
 # grubby's new boot entry is the default, so we'll migrate based on the PCRs
 # produced for menu.lst entry 0
-tpm_luks -c -p ${TMPDIR}/nv-perms-boot-entry-0.txt
+tpm-luks -c -p ${TMPDIR}/nv-perms-boot-entry-0.txt
 
 exit $?

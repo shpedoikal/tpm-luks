@@ -15,13 +15,13 @@ function cleanup
 trap cleanup EXIT
 
 # generate new PCR values based off the new kernel/initramfs binaries
-gen_pcr_values -d ${TMPDIR} || exit -1
+tpm-luks-gen-pcr-values -d ${TMPDIR} || exit -1
 if [ $? -ne 0 ]; then
-	echo "gen_pcr_values has failed. Aborting. Is securityfs mounted?"
+	echo "tpm-luks-gen-pcr-values has failed. Aborting. Is securityfs mounted?"
 	echo "The file /sys/kernel/security/tpm0/ascii_bios_measurements should exist and be readable."
 	exit 255
 fi
 
-tpm_luks -m -p ${TMPDIR}/nv-perms-boot-entry-0.txt
+tpm-luks -m -p ${TMPDIR}/nv-perms-boot-entry-0.txt
 
 exit $?
