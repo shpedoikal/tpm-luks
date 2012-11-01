@@ -27,4 +27,4 @@ swtpm-utils/lib/Makefile.in
 swtpm-utils/nv_readvalue
 tpm-luks.spec
 yum/tpm-luks.action
-
+tpm-luks/tpm-luks-parse-config

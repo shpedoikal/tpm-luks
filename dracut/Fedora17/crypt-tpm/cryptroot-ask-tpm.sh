@@ -2,7 +2,7 @@
 #
 # package reqs: od, getcapability, nv_readvalue
 #
-# Author: Kent Yoder <yoder1@us.ibm.com>
+# Author: Kent Yoder <key@linux.vnet.ibm.com>
 #
 CRYPTSETUP=/sbin/cryptsetup
 MOUNT=/bin/mount

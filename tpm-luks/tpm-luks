@@ -2,7 +2,7 @@
 #
 # package reqs: tpm-tools, trousers
 #
-# Author: Kent Yoder <yoder1@us.ibm.com>
+# Author: Kent Yoder <key@linux.vnet.ibm.com>
 #
 AWK=/bin/awk
 CRYPTSETUP=/sbin/cryptsetup
@@ -354,7 +354,7 @@ function usage
 	echo -e	"                     'cryptsetup luksDump <device>')"
 	echo -e "  -i <index>        use the specified TPM NVRAM index for the new area (view "
 	echo -e	"                     indexes with tpm_nvinfo)"
-	echo -e "  -d <device>       use the specified LUKS device (print with "
+	echo -e "  -d <device>       use the specified LUKS device (view with "
 	echo -e	"                     'blkid -t TYPE=crypto_LUKS')"
 	echo -e	"  -p <nvpermsfile>  use the specified NV permissions file for the new area"
 	echo -e	"  -h                help"

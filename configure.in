@@ -24,6 +24,7 @@ AC_CONFIG_FILES([Makefile \
 		 swtpm-utils/lib/Makefile \
 		 dracut/Makefile \
 		 dracut/tpm-luks.conf \
+		 tpm-luks/tpm-luks-parse-config \
 		 tpm-luks.spec])
 
 AC_OUTPUT

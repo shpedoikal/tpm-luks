@@ -1,27 +1,40 @@
-#!/bin/bash
+#!/bin/bash -e
 #
-# Author: Kent Yoder <yoder1@us.ibm.com>
+# tpm-luks-gen-tgrub-pcr-values
+#
+# Parse a grub1 menu.lst file and generate the future TPM PCR values needed
+# to seal a system state to.
+#
+# Author: Kent Yoder <key@linux.vnet.ibm.com>
 #
 #set -x
 
-PCRS="4 5 12 14"
+PCRS=$(tpm-luks-parse-config)
 TMPFILE=
 SOURCE=/sys/kernel/security/tpm0/ascii_bios_measurements
 MENU=/boot/grub/menu.lst
 DESTDIR=$PWD
+
+if test -z "${PCRS}"; then
+	exit 0
+fi
 
 function usage
 {
 	echo "usage ${0##/*} [options]"
 	echo "options:"
 	echo
-	echo "  -d <dir>  Optional directory to write files to (default is \$PWD)"
+	echo "  -d <dir>  Optional directory to write NVRAM permissions files to (default is \$PWD)"
+	echo "  -m <file> Optional GrUB menu.lst to parse (default is /boot/grub/menu.lst)"
 }
 
-while getopts "d:" opt; do
+while getopts "d:m:" opt; do
 	case $opt in
 	d)
 		DESTDIR=$OPTARG
+		;;
+	m)
+		MENU=$OPTARG
 		;;
 	*)
 		usage

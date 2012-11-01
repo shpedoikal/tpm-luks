@@ -8,7 +8,7 @@
 # This script defaults to an initial state of 20 bytes of zeroes and files
 # will be chained in the order that they appear on the command line
 #
-# Author: Kent Yoder <yoder1@us.ibm.com>
+# Author: Kent Yoder <key@linux.vnet.ibm.com>
 #
 #set -x
 
