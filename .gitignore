@@ -10,6 +10,7 @@ cscope.out
 depcomp
 dracut/Makefile
 dracut/Makefile.in
+dracut/tpm-luks.conf
 install-sh
 libtool
 ltmain.sh
