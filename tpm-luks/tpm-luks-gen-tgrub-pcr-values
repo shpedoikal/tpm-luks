@@ -3,7 +3,8 @@
 # tpm-luks-gen-tgrub-pcr-values
 #
 # Parse a grub1 menu.lst file and generate the future TPM PCR values needed
-# to seal a system state to.
+# to seal a system state to. Based on the implementation of the package
+# at http://trustedgrub.sf.net.
 #
 # Author: Kent Yoder <key@linux.vnet.ibm.com>
 #
