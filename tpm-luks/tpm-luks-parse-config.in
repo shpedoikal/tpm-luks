@@ -1,8 +1,7 @@
 #!/bin/bash
 #set -x
 
-#CONFIG_FILE=@SYSCONFDIR@/tpm-luks.conf
-CONFIG_FILE=../tpm-luks.conf
+CONFIG_FILE=/etc/tpm-luks.conf
 
 . ${CONFIG_FILE}
 
