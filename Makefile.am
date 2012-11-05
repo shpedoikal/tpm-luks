@@ -41,6 +41,7 @@ dist_yumplugins_SCRIPTS=yum/post-transaction-actions.py
 yumpostactionsdir=/etc/yum/post-actions
 dist_yumpostactions_SCRIPTS=yum/tpm-luks.action
 
+sysconfdir=/etc
 sysconf_DATA=tpm-luks.conf
 
 CLEANFILES = yum/tpm-luks.action
