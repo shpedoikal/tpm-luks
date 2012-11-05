@@ -21,6 +21,9 @@ if test ! -z "${profile}"; then
 	"drtm-details")
 		echo "18"
 		;;
+	"drtm-authority-details")
+		echo "17 18"
+		;;
 	*)
 		exit -1
 		;;
