@@ -16,8 +16,11 @@ SOURCE=/sys/kernel/security/tpm0/ascii_bios_measurements
 MENU=/boot/grub/menu.lst
 DESTDIR=$PWD
 
-if test -z "${PCRS}"; then
+if [ -z "${PCRS}"]; then
 	exit 0
+elif [ ! -e ${SOURCE} ]; then
+	echo "PCR measurements file not found, is securityfs mounted?"
+	exit 255
 fi
 
 function usage
