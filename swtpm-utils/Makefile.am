@@ -47,6 +47,10 @@ LDADD = lib/.libs/libtpm.a
 AM_CONDITIONAL = TPM_VTPM
 #AM_LDFLAGS = -all-static
 AM_LDFLAGS = -lc -ldl -lcrypto
+# These must go into /usr/bin because they'll be gathered up by dracut's
+# scripts as part of bnuilding the initramfs. The 'inst_binary' script
+# only looks in a few places, and /usr/local/bin isn't one of them
+bindir=/usr/bin
 bin_PROGRAMS = getcapability nv_readvalue
 
 getcapability_SOURCES = getcapability.c
