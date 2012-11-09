@@ -10,6 +10,7 @@ C. If the LUKS volume is your rootfs
   I. RHEL6
   II. Fedora 17
 D. Sealing your NVRAM area to PCR state
+E. Backup
 
 === A. Required steps ===
 
@@ -31,8 +32,14 @@ D. Sealing your NVRAM area to PCR state
 	 $ echo "/usr/local/lib" >> /etc/ld.so.conf
 	 # ldconfig
 
-	3. Take ownership of your TPM:
+	3. Take ownership of your TPM if you haven't before:
 	 $ tpm_takeownership
+
+	4. Mount securityfs:
+	  # mount -t securityfs securityfs /sys/kernel/security
+
+	and add to /etc/fstab:
+	   securityfs              /sys/kernel/security    securityfs defaults 0 0
 
 
 == B. If the LUKS volume is not your rootfs ==
@@ -53,14 +60,8 @@ D. Sealing your NVRAM area to PCR state
 	  Enter any passphrase: 
 	  Using NV index 2 for device /dev/sda2
 
-	3. Backup your current LUKS header
-	  $ cryptsetup luksHeaderBackup <device> --header-backup-file <file>
-
-	4. Remove the LUKS key slot with the software key
-	  $ tpm-luks -k -s <slot>
-
-	tpm-luks creates a 32-byte binary key using data read from /dev/urandom and
-	writes it TPM NVRAM. An extra byte is prepended as a version check.
+	tpm-luks creates a 32-byte binary key and writes it TPM NVRAM. An extra byte
+	is prepended as a version check.
 
 C. If the LUKS volume is your rootfs
 
@@ -70,7 +71,7 @@ C. If the LUKS volume is your rootfs
 
   I. RHEL 6 (may work elsewhere but so far only tested on RHEL 6)
 
-	Run tpm-luks-init, which will attempt to do the following:
+	Run tpm-luks-init, or do these steps manually:
 
 	1. Determine your LUKS encrypted partions:
 	 $ blkid -t TYPE=crypto_LUKS
@@ -100,9 +101,8 @@ C. If the LUKS volume is your rootfs
 
   II. Fedora 17
 
-	Run tpm-luks-init, which will attempt to do the following (note
-	that tpm-luks-init uses grubby, which seems to have problems with
-	grub2, YMMV):
+	Run tpm-luks-init, or do these steps manually (note that tpm-luks-init uses
+	grubby, which seems to have problems with F17's grub2, YMMV):
 
 	1. Determine your LUKS encrypted partions:
 	 $ blkid -t TYPE=crypto_LUKS
@@ -143,7 +143,7 @@ D. Sealing your NVRAM area to PCR state
 	The usual use case would be to boot using a TPM-aware bootloader which records
 	the kernel and initramfs you've booted. This would prevent your LUKS secret
 	from being retrieved from the TPM chip if the machine was booted from any other
-	media.
+	media or configuration.
 
 	To get a full chain of trust up through your initramfs, you'll first need to
 	install TrustedGrUB, available from http://sourceforge.net/projects/trustedgrub/.
@@ -157,7 +157,12 @@ D. Sealing your NVRAM area to PCR state
 	Once you've installed TrustedGrub successfully, reboot, then continue
 	with these steps:
 
-	1. Edit /etc/tpm-luks.conf
+	1. Edit /etc/tpm-luks.conf and set either the 'profile' or 'pcrs' option
+	to tell tpm-luks to use the PCRs you choose. You'll want to take some time
+	and make sure you really understand what you're doing here. If you remove
+	your non-TPM keys from your LUKS header and then your system config
+	changes, you could lose access to your LUKS partition. Make sure you backup
+	your LUKS header before removing all the non-TPM keys!
 	 ATM, only the "srtm" profile or PCRs 0-15 are supported.
 
 	2. Complete the steps in C.I. or C.II. above
@@ -168,5 +173,14 @@ D. Sealing your NVRAM area to PCR state
 	  updated, the hook runs the tpm-luks-update script, which attempts to
 	  migrate your current TPM NVRAM secret to the new PCR values for the
 	  changed kernel+initramfs.
+
+E. Backup
+
+	1. Backup your current LUKS header
+	  $ cryptsetup luksHeaderBackup <device> --header-backup-file <file>
+
+	2. Remove the LUKS key slot with the non-TPM key, using a secret held
+	in the TPM:
+	  $ tpm-luks -k -s <slot>
 
 EOF
