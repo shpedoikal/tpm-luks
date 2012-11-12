@@ -16,21 +16,24 @@ E. Backup
 
 	1. You can check that your TPM is available by looking for /dev/tpm0, which
 	will exist if a kernel driver is loaded. If not you'll need to load the
-	tpm_tis module (or other TPM 1.2 module depending on your platform).
+	tpm_tis module (or other TPM 1.2 module depending on your platform). On
+	RHEL 6, the tpm driver is built into the kernel -- on Fedora 17, you'll
+	need to install the kernel-modules-extra package to get tpm_tis.
 
 	2. Install tpm-luks, tpm-tools >= 1.3.8, trousers >= 0.3.9. Available at
 	   sf.net/projects/trousers. Start the tcsd:
 	 # tcsd
+	trousers 0.3.9 is included with Fedora 17.
 
 	 You can test if trousers and tpm-tools are working ok by running tpm_nvinfo.
-	If it errors out with missing library errors, follow these steps:
+	If it errors out with missing library errors after a build, follow these
+	steps:
 
-	 During the trousers build:
-	 $ ./configure --prefix=/usr
-	or
 	 After the trousers build:
 	 $ echo "/usr/local/lib" >> /etc/ld.so.conf
 	 # ldconfig
+	or during the build:
+	 $ ./configure --prefix=/usr
 
 	3. Take ownership of your TPM if you haven't before:
 	 $ tpm_takeownership
@@ -38,7 +41,7 @@ E. Backup
 	4. Mount securityfs:
 	  # mount -t securityfs securityfs /sys/kernel/security
 
-	and add to /etc/fstab:
+	and add to /etc/fstab to remount it automatically:
 	   securityfs              /sys/kernel/security    securityfs defaults 0 0
 
 
@@ -49,7 +52,7 @@ E. Backup
 	 /dev/sda2: UUID="4cb97e1f-b921-4f1a-bd86-032831b277af" TYPE="crypto_LUKS"
 
 	2. Add a new LUKS key to a key slot and the TPM:
-	  # tpm_luks -c -d /dev/sda2
+	  # tpm-luks -c -d /dev/sda2
 	  Enter a new TPM NV area password: 
 	  Re-enter the new TPM NV area password: 
 	  Enter your TPM owner password: 
@@ -78,7 +81,7 @@ C. If the LUKS volume is your rootfs
 	 /dev/sda2: UUID="4cb97e1f-b921-4f1a-bd86-032831b277af" TYPE="crypto_LUKS"
 
 	2. Add a new LUKS key to a key slot and the TPM:
-	  # tpm_luks -c -d /dev/sda2
+	  # tpm-luks -c -d /dev/sda2
 	  Enter a new TPM NV area password: 
 	  Re-enter the new TPM NV area password: 
 	  Enter your TPM owner password: 
@@ -101,15 +104,15 @@ C. If the LUKS volume is your rootfs
 
   II. Fedora 17
 
-	Run tpm-luks-init, or do these steps manually (note that tpm-luks-init uses
-	grubby, which seems to have problems with F17's grub2, YMMV):
+	Do these steps manually, since tpm-luks-init uses grubby, which seems to
+	have problems with F17's grub2:
 
 	1. Determine your LUKS encrypted partions:
 	 $ blkid -t TYPE=crypto_LUKS
 	 /dev/sda2: UUID="4cb97e1f-b921-4f1a-bd86-032831b277af" TYPE="crypto_LUKS"
 
 	2. Add a new LUKS key to a key slot and the TPM:
-	  # tpm_luks -c -d /dev/sda2
+	  # tpm-luks -c -d /dev/sda2
 	  Enter a new TPM NV area password: 
 	  Re-enter the new TPM NV area password: 
 	  Enter your TPM owner password: 
