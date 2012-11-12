@@ -13,10 +13,12 @@ if `egrep -q "Red Hat Enterprise Linux.*release 6" /etc/*-release`; then
 	AM_CONDITIONAL([RHEL6], true)
 	AM_CONDITIONAL([FEDORA17], false)
 	AC_SUBST(DRACUT_MODULE_NAME, [plymouth])
+	AC_SUBST(DRACUT_KERNEL_MODULES, [""])
 else
 	AM_CONDITIONAL([FEDORA17], true)
 	AM_CONDITIONAL([RHEL6], false)
 	AC_SUBST(DRACUT_MODULE_NAME, [crypt])
+	AC_SUBST(DRACUT_KERNEL_MODULES, ["tpm_bios tpm tpm_tis"])
 fi
 
 AC_CONFIG_FILES([Makefile \

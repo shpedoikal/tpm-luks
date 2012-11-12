@@ -10,7 +10,7 @@ omit_dracutmodules+="@DRACUT_MODULE_NAME@"
 add_dracutmodules+="@DRACUT_MODULE_NAME@-tpm"
 
 # additional kernel modules to the default
-#add_drivers+=""
+add_drivers+="@DRACUT_KERNEL_MODULES@"
 
 # list of kernel filesystem modules to be included in the generic initramfs
 #filesystems+=""

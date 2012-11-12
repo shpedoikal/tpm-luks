@@ -103,11 +103,9 @@ else
 fi
 
 if [ $ask_passphrase -ne 0 ]; then
-    ask_for_password --ply-tries 3 \
-        --ply-cmd "cryptroot-ask-tpm $device $luksname" \
-        --ply-prompt "Password ($device)" \
-        --tty-tries 3 \
-        --tty-cmd "cryptroot-ask-tpm $device $luksname"
+    ask_for_password --tries 3 \
+        --cmd "cryptroot-ask-tpm $device $luksname" \
+        --prompt "TPM NVRAM Password ($device)"
 
     if [ $? -ne 0 ]; then
 	luks_open="$(command -v cryptsetup) luksOpen"

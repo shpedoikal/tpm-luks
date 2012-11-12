@@ -57,5 +57,6 @@ install() {
     inst_binary awk
     inst_binary od
     inst_binary nv_readvalue
+    inst_binary dd
 }
 
