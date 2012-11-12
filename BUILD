@@ -1,7 +1,7 @@
 
 = build pre-reqs =
 
- Packages: automake, autoconf, libtool, gcc, openssl-devel
+ Packages: automake, autoconf, libtool, gcc, openssl-devel, make
 
 = build steps =
 
