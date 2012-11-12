@@ -1,1 +1,5 @@
+tpm-luks:
 Kent Yoder <key@linux.vnet.ibm.com>
+
+The swtpm-utils code was written by:
+Ken Goldman and Stefan Berger
