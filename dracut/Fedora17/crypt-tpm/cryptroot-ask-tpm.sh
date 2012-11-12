@@ -66,15 +66,12 @@ for NVINDEX in ${VIABLE_INDEXES}; do
 		-of ${TMPFILE} >/dev/null 2>&1
 	RC=$?
 	if [ ${RC} -eq 1 ]; then
-		#/bin/plymouth --text="TPM NV index ${NVINDEX}: Bad password."
 		echo "TPM NV index ${NVINDEX}: Bad password."
 		continue
 	elif [ ${RC} -eq 24 ]; then
-		#/bin/plymouth --text="TPM NV index ${NVINDEX}: PCR mismatch."
 		echo "TPM NV index ${NVINDEX}: PCR mismatch."
 		continue
 	elif [ ${RC} -eq 2 ]; then
-		#/bin/plymouth --text="TPM NV index ${NVINDEX}: Invalid NVRAM Index."
 		echo "TPM NV index ${NVINDEX}: Invalid NVRAM Index."
 		continue
 	elif [ ${RC} -ne 0 ]; then
@@ -86,7 +83,7 @@ for NVINDEX in ${VIABLE_INDEXES}; do
 	/usr/bin/od -A n -N 1 -t x1 ${TMPFILE} | grep -q 00
 	RC=$?
 	if [ ${RC} -ne 0 ]; then
-		# Zeroize keyfile
+		# Zeroize file
 		dd if=/dev/zero of=${TMPFILE} bs=1c count=32 >/dev/null 2>&1
 		echo "TPM NV index ${NVINDEX}: wrong version (${RC})"
 		continue
