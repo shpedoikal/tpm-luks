@@ -49,3 +49,7 @@ CLEANFILES = yum/tpm-luks.action
 yum/tpm-luks.action: yum/tpm-luks.action.in
 	@SED@ -e s!\@sbindir\@!"@sbindir@"!g < $< > $@-t
 	mv $@-t $@
+
+tpm-luks.conf: tpm-luks.conf.in
+	@SED@ -e s!\@sbindir\@!"@sbindir@"!g < $< > $@-t
+	mv $@-t $@

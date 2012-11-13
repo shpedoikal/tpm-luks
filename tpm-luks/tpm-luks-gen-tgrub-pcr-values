@@ -3,23 +3,66 @@
 # tpm-luks-gen-tgrub-pcr-values
 #
 # Parse a grub1 menu.lst file and generate the future TPM PCR values needed
-# to seal a system state to. Based on the implementation of the package
-# at http://trustedgrub.sf.net.
+# to seal a system state to. Based on the implementation of the trustedgrub
+# package at http://trustedgrub.sf.net.
 #
 # Author: Kent Yoder <key@linux.vnet.ibm.com>
 #
+####
+# Output format:
+# 
+# [r/w] [PCR#] [40 byte ascii SHA-1 value]
+#
+# example:
+#
+# r 0 f952e49a7e90037fb6ee505d80a322798012db16
+# r 15 a0ea6036b734da48b57fdd0fd87218cbada887ef
+# w 12 3bd4ed7984d262f1d0d71e337ea4de290e17b4bd
+#
+####
+# How do you know which PCRs to use? The canonical reference document that
+# describes which PCRs are used for which purposes for TPM 1.2 is here:
+#
+# http://www.trustedcomputinggroup.org/files/temp/64505409-1D09-3519-AD5C611FAD3F799B/PC%20Client%20Implementation%20for%20BIOS.pdf
+#
+# See section 3.2.3. A summary for convenience:
+#
+# PCR Index	Use
+# 0		CRTM, BIOS, and Host Platform Extensions
+# 1		Host Platform Configuration
+# 2		Option ROM Code
+# 3		Option ROM Configuration and Data
+# 4		IPL Code (usually the MBR)
+# 5		IPL Code Configuration and Data
+# 6		State Transition and Wake Events
+# 7		Host Platform Manufacturer Control
+# 8-15		Used by the OS
+#
+# An explanation of the "srtm" profile (below):
+#
+# PCR 4  - record measurement of trusted grub in the MBR as measured by
+#          the BIOS
+# PCR 5  - record the IPL config - this is a record of the boot device
+#          chosen by the user
+# PCR 12 - record trusted grub's config file command lines - note that
+#          this includes the kernel command line, so any change to the
+#          kernel command line will prevent releasing the NVRAM secret!
+# PCR 14 - record the files that trusted grub launches - kernel and
+#          initramfs
+#
+#
 #set -x
 
-PCRS=$(tpm-luks-parse-config)
+PCRS="4 5 12 14"
 TMPFILE=
 SOURCE=/sys/kernel/security/tpm0/ascii_bios_measurements
 MENU=/boot/grub/menu.lst
-DESTDIR=$PWD
+OUTFILE=/dev/stdout
 
-if [ -z "${PCRS}"]; then
+if [ -z "${PCRS}" ]; then
 	exit 0
 elif [ ! -e ${SOURCE} ]; then
-	echo "PCR measurements file not found, is securityfs mounted?"
+	echo "PCR measurements file not found, is securityfs mounted?" 1>&2
 	exit 255
 fi
 
@@ -28,14 +71,14 @@ function usage
 	echo "usage ${0##/*} [options]"
 	echo "options:"
 	echo
-	echo "  -d <dir>  Optional directory to write NVRAM permissions files to (default is \$PWD)"
-	echo "  -m <file> Optional GrUB menu.lst to parse (default is /boot/grub/menu.lst)"
+	echo "  -o <file> Optional file to write NVRAM permissions files to (default is ${OUTFILE})"
+	echo "  -m <file> Optional GrUB menu.lst to parse (default is ${MENU})"
 }
 
-while getopts "d:m:" opt; do
+while getopts "o:m:" opt; do
 	case $opt in
-	d)
-		DESTDIR=$OPTARG
+	o)
+		OUTFILE=$OPTARG
 		;;
 	m)
 		MENU=$OPTARG
@@ -55,7 +98,7 @@ cleanup()
 TMPFILE=$(mktemp -q /tmp/${0##*/}-XXXXXX)
 
 if [ ! -n "$TMPFILE" ]; then
-	echo "Temp file creation failed"
+	echo "Temp file creation failed" 1>&2
 	exit -1
 fi
 
@@ -85,11 +128,11 @@ for e in $(seq 0 $NUM_ENTRIES); do
 done
 BOOT=$(echo -n "boot" | sha1sum | awk '{ print $1 }')
 
-echo "Writing PCRs for \"$MENU\" boot entries:"
+#echo "Writing PCRs for \"$MENU\" boot entries:"
 for e in $(seq 0 $NUM_ENTRIES); do
-	echo -n "$e: \"${TITLES[$e]}\""
-	for PCR in ${PCRS[@]}; do
-		AWK_STR="\$1 ~ /${PCR}/ { print \$2 }"
+	#echo -n "$e: \"${TITLES[$e]}\""
+	for PCRNUM in ${PCRS[@]}; do
+		AWK_STR="\$1 ~ /${PCRNUM}/ { print \$2 }"
 		MEASUREMENTS=$(cat $SOURCE | awk "$AWK_STR")
 
 		#echo "awk str: $AWK_STR"
@@ -103,36 +146,38 @@ for e in $(seq 0 $NUM_ENTRIES); do
 				CURR_PCR=$(tpm-luks-chain-hashes -f $TMPFILE -o $TMPFILE -h $m)
 			fi
 
-			j=$(( $j + 1 ))
+			j=1
 		done
 
-		# Sitting in $TMPFILE is the binary hash value of PCR $1 at the point in
-		# time where the BIOS stopped touching it (this will vary by PCR)
+		# Sitting in $TMPFILE is the binary hash value of $PCRNUM at the point in
+		# time where the BIOS launched the MBR.
 		#
 		# Using $TMPFILE as a starting point, continue the chaining process
 
-		case $PCR in
+		case $PCRNUM in
 		4)
-			echo "r $PCR $CURR_PCR" > $DESTDIR/nv-perms-boot-entry-$e.txt
-			#echo "w $PCR $CURR_PCR"
+			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
+			#echo "w $PCRNUM $CURR_PCR"
 			;;
 		5)
-			echo "r $PCR $CURR_PCR" >> $DESTDIR/nv-perms-boot-entry-$e.txt
-			#echo "w $PCR $CURR_PCR"
+			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
+			#echo "w $PCRNUM $CURR_PCR"
 			;;
 		12)
 			CURR_PCR=$(tpm-luks-chain-hashes -o $TMPFILE -h ${ROOTS[$e]} ${KERNELS[$e]} ${INITRDS[$e]} ${BOOT})
-			echo "r $PCR $CURR_PCR" >> $DESTDIR/nv-perms-boot-entry-$e.txt
-			#echo "w $PCR $CURR_PCR"
+			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
+			#echo "w $PCRNUM $CURR_PCR"
 			;;
 		14)
 			CURR_PCR=$(tpm-luks-chain-hashes -o $TMPFILE ${KERNEL_FILES[$e]} ${INITRD_FILES[$e]})
-			echo "r $PCR $CURR_PCR" >> $DESTDIR/nv-perms-boot-entry-$e.txt
-			#echo "w $PCR $CURR_PCR"
+			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
+			#echo "w $PCRNUM $CURR_PCR"
+			;;
+		*)
+			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
 			;;
 		esac
 	done
-	echo " -> nv-perms-boot-entry-$e.txt"
 done
 
 exit 0
