@@ -1,64 +1,47 @@
 #!/bin/bash -e
 #
-# tpm-luks-init: clone the current default GrUB menu entry and generate a
-#		 new initramfs for it that can prompt for a TPM NVRAM password
+# tpm-luks-init: For each entry in the config file, run the script to
+#		 generate its PCR values, then run tpm-luks to create a
+#		 new TPM NVRAM secret for it
 #
 #
 #set -x
-DRACUT=/sbin/dracut
-TMPDIR=$(mktemp -d /tmp/${0##*/}-XXXXXX)
-KERNEL=$(grubby --default-kernel)
-INITRAMFS="${KERNEL//vmlinuz/initramfs}-tpm-luks.img"
-TITLE="Linux ${KERNEL#/boot/vmlinuz-*} (TPM LUKS)"
+CONF=/etc/tpm-luks.conf
+TMPFILE=$(mktemp /tmp/${0##*/}-XXXXXX)
 
 function cleanup
 {
-	rm -rf ${TMPDIR}
+	rm -f ${TMPFILE}
 }
 
 trap cleanup EXIT
 
-if [ ! -n "${KERNEL}" ]; then
-	echo "Error using grubby to parse your bootloader config. Aborting."
-	echo "If the output of 'grubby --default-kernel' is correct, re-run this script"
-	exit 255
+DEVICES=( $(cat ${CONF} | awk -F: '! /^#/ {print $1}') )
+SCRIPTS=( $(cat ${CONF} | awk -F: '! /^#/ {print $2}') )
+
+NUM_DEVICES=$(( ${#DEVICES[@]} - 1 ))
+NUM_SCRIPTS=$(( ${#SCRIPTS[@]} - 1 ))
+
+if [ $NUM_SCRIPTS -ne $NUM_DEVICES ]; then
+	echo "${CONF} parse error" 1>&2
+	exit 1
 fi
 
-echo "Copying your default grub boot entry..."
-grubby --make-default --copy-default --title "${TITLE}" --add-kernel=${KERNEL} --initrd=${INITRAMFS}
-if [ $? -ne 0 ]; then
-	echo "Error using grubby to modify your bootloader config. Aborting."
-	echo "Failing command:  \"grubby --make-default --copy-default --title "${TITLE}" --add-kernel=${KERNEL} --initrd=${INITRAMFS}\""
-	exit 255
-fi
+for d in $(seq 0 $NUM_DEVICES); do
+	echo "Generating PCR values for ${DEVICES[$d]}..."
+	${SCRIPTS[$d]} -o ${TMPFILE}
+	if [ $? -ne 0 ]; then
+		echo "${SCRIPTS[$d]} has failed. Aborting."
+		exit 2
+	fi
 
-
-echo "Writing TPM utils into new initramfs..."
-# create a new initramfs based on the newly installed one. We're not
-# overwriting an old initramfs here, so --force isn't needed
-$DRACUT ${INITRAMFS}
-if [ $? -ne 0 ]; then
-	echo "Error using dracut to create new initramfs. Aborting."
-	echo "Your bootloader config contains an invalid entry (0)."
-	exit 255
-fi
-
-echo "Generating PCR values (if needed)..."
-# generate new PCR values based off the new kernel/initramfs binaries
-tpm-luks-gen-tgrub-pcr-values -d ${TMPDIR}
-if [ $? -ne 0 ]; then
-	echo "tpm-luks-gen-tgrub-pcr-values has failed. Aborting. Is securityfs mounted?"
-	echo "The file /sys/kernel/security/tpm0/ascii_bios_measurements should exist and be readable."
-	exit 255
-fi
-
-echo "Creating new TPM NVRAM secret..."
-if [ -e ${TMPDIR}/nv-perms-boot-entry-0.txt ]; then
-	# grubby's new boot entry is the default, so we'll migrate based on the PCRs
-	# produced for menu.lst entry 0
-	tpm-luks -c -p ${TMPDIR}/nv-perms-boot-entry-0.txt
-else
-	tpm-luks -c
-fi
+	echo "Creating new TPM NVRAM secret for ${DEVICES[$d]}..."
+	tpm-luks -c -d ${DEVICES[$d]} -p ${TMPFILE}
+	if [ $? -ne 0 ]; then
+		echo "tpm-luks has failed. Aborting."
+		exit 3
+	fi
+	rm -f ${TMPFILE}
+done
 
 exit $?

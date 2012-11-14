@@ -1,35 +1,46 @@
 #!/bin/bash -e
 #
-# tpm-luks-update: calculate new PCR values and migrate a TPM NVRAM
-#		   area to be sealed to them. Should be called automatically
-#		   by
-#
+# tpm-luks-update: For each entry in the config file, run the script to
+#		   regenerate its PCR values, then run tpm-luks to migrate
+#		   its secret to a new NVRAM index sealed to the new PCRs
 #
 #set -x
-TMPDIR=$(mktemp -d /tmp/${0##*/}-XXXXXX)
-
-if [ ! -d ${TMPDIR} ]; then
-	echo "Temp directory creation failed. Check why this might have failed and re-reun tpm-luks-update"
-	exit 255
-fi
+CONF=/etc/tpm-luks.conf
+TMPFILE=$(mktemp /tmp/${0##*/}-XXXXXX)
 
 function cleanup
 {
-	rm -rf ${TMPDIR}
+	rm -f ${TMPFILE}
 }
 
 trap cleanup EXIT
 
-# generate new PCR values based off the new kernel/initramfs binaries
-tpm-luks-gen-tgrub-pcr-values -d ${TMPDIR}
-if [ $? -ne 0 ]; then
-	echo "tpm-luks-gen-tgrub-pcr-values has failed. Aborting. Is securityfs mounted?"
-	echo "The file /sys/kernel/security/tpm0/ascii_bios_measurements should exist and be readable."
-	exit 255
+DEVICES=( $(cat ${CONF} | awk -F: '! /^#/ {print $1}') )
+SCRIPTS=( $(cat ${CONF} | awk -F: '! /^#/ {print $2}') )
+
+NUM_DEVICES=$(( ${#DEVICES[@]} - 1 ))
+NUM_SCRIPTS=$(( ${#SCRIPTS[@]} - 1 ))
+
+if [ $NUM_SCRIPTS -ne $NUM_DEVICES ]; then
+	echo "${CONF} parse error" 1>&2
+	exit 1
 fi
 
-if [ -e ${TMPDIR}/nv-perms-boot-entry-0.txt ]; then
-	tpm-luks -m -p ${TMPDIR}/nv-perms-boot-entry-0.txt
-fi
+for d in $(seq 0 $NUM_DEVICES); do
+	echo "Generating PCR values for ${DEVICES[$d]}..."
+	${SCRIPTS[$d]} -o ${TMPFILE}
+	if [ $? -ne 0 ]; then
+		echo "${SCRIPTS[$d]} has failed. Aborting."
+		exit 2
+	fi
 
-exit $?
+	echo "Migrating TPM NVRAM secret for ${DEVICES[$d]}..."
+	tpm-luks -m -d ${DEVICES[$d]} -p ${TMPFILE}
+	if [ $? -ne 0 ]; then
+		echo "tpm-luks has failed. Aborting."
+		exit 3
+	fi
+	rm -f ${TMPFILE}
+done
+
+exit 0

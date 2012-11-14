@@ -155,14 +155,14 @@ for e in $(seq 0 $NUM_ENTRIES); do
 		# Using $TMPFILE as a starting point, continue the chaining process
 
 		case $PCRNUM in
-		4)
-			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
-			#echo "w $PCRNUM $CURR_PCR"
-			;;
-		5)
-			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
-			#echo "w $PCRNUM $CURR_PCR"
-			;;
+		#4)
+		#	echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
+		#	#echo "w $PCRNUM $CURR_PCR"
+		#	;;
+		#5)
+		#	echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
+		#	#echo "w $PCRNUM $CURR_PCR"
+		#	;;
 		12)
 			CURR_PCR=$(tpm-luks-chain-hashes -o $TMPFILE -h ${ROOTS[$e]} ${KERNELS[$e]} ${INITRDS[$e]} ${BOOT})
 			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
