@@ -29,7 +29,6 @@ sbin_SCRIPTS=tpm-luks/tpm-luks-chain-hashes \
 	     tpm-luks/tpm-luks \
 	     tpm-luks/tpm-luks-gen-tgrub-pcr-values \
 	     tpm-luks/tpm-luks-update \
-	     tpm-luks/tpm-luks-parse-config \
 	     tpm-luks/tpm-luks-init
 
 yumpluginconfdir=/etc/yum/pluginconf.d
@@ -41,9 +40,6 @@ dist_yumplugins_SCRIPTS=yum/post-transaction-actions.py
 yumpostactionsdir=/etc/yum/post-actions
 dist_yumpostactions_SCRIPTS=yum/tpm-luks.action
 
-sysconfdir=/etc
-sysconf_DATA=tpm-luks.conf
-
 CLEANFILES = yum/tpm-luks.action
 
 yum/tpm-luks.action: yum/tpm-luks.action.in
@@ -53,3 +49,7 @@ yum/tpm-luks.action: yum/tpm-luks.action.in
 tpm-luks.conf: tpm-luks.conf.in
 	@SED@ -e s!\@sbindir\@!"@sbindir@"!g < $< > $@-t
 	mv $@-t $@
+
+install-exec-hook:
+	if test ! -e ${DESTDIR}/etc/tpm-luks.conf; then cp tpm-luks.conf ${DESTDIR}/etc; fi
+

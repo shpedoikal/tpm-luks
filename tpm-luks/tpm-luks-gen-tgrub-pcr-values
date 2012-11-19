@@ -9,8 +9,8 @@
 # Author: Kent Yoder <key@linux.vnet.ibm.com>
 #
 ####
-# Output format:
-# 
+# NVRAM permissions file format:
+#
 # [r/w] [PCR#] [40 byte ascii SHA-1 value]
 #
 # example:
@@ -18,6 +18,11 @@
 # r 0 f952e49a7e90037fb6ee505d80a322798012db16
 # r 15 a0ea6036b734da48b57fdd0fd87218cbada887ef
 # w 12 3bd4ed7984d262f1d0d71e337ea4de290e17b4bd
+#
+# For this example, the TPM data written will only be readable when PCR 0's
+# value is f952e49a7e90037fb6ee505d80a322798012db16 and PCR 15's value is
+# a0ea6036b734da48b57fdd0fd87218cbada887ef and will only be writable when
+# PCR 12's value is 3bd4ed7984d262f1d0d71e337ea4de290e17b4bd.
 #
 ####
 # How do you know which PCRs to use? The canonical reference document that
@@ -44,6 +49,8 @@
 #          the BIOS
 # PCR 5  - record the IPL config - this is a record of the boot device
 #          chosen by the user
+# PCR 8  - The first 512 bytes of grub stage2
+# PCR 9  - The rest of stage2
 # PCR 12 - record trusted grub's config file command lines - note that
 #          this includes the kernel command line, so any change to the
 #          kernel command line will prevent releasing the NVRAM secret!
@@ -53,10 +60,11 @@
 #
 #set -x
 
-PCRS="4 5 12 14"
+PCRS="4 5 8 9 12 14"
 TMPFILE=
 SOURCE=/sys/kernel/security/tpm0/ascii_bios_measurements
 MENU=/boot/grub/menu.lst
+STAGE2=/boot/grub/stage2
 OUTFILE=/dev/stdout
 
 if [ -z "${PCRS}" ]; then
@@ -71,7 +79,7 @@ function usage
 	echo "usage ${0##/*} [options]"
 	echo "options:"
 	echo
-	echo "  -o <file> Optional file to write NVRAM permissions files to (default is ${OUTFILE})"
+	echo "  -o <file> Optional file to write NVRAM permissions files to (default is stdout)"
 	echo "  -m <file> Optional GrUB menu.lst to parse (default is ${MENU})"
 }
 
@@ -110,6 +118,7 @@ TITLES=( $(cat $MENU | awk -F "\n" '$1 ~ /^[\W]*title/ { print $0 }' | sed 's/ti
 ROOTS=( $(cat $MENU | awk -F "\n" '$1 ~ /^\Wroot/ { print $0 }') )
 KERNELS=( $(cat ${MENU} | awk -F "\n" '$1 ~ /^\Wkernel/ { print $0 }') )
 INITRDS=( $(cat $MENU | awk -F "\n" '$1 ~ /^\Winitrd/ { print $0 }') )
+DEFAULT=$(cat $MENU | awk -F= '$1 ~ /default/ { print $2 }')
 IFS=${OLD_IFS}
 
 NUM_ENTRIES=$(( ${#KERNELS[@]} - 1 ))
@@ -130,6 +139,11 @@ BOOT=$(echo -n "boot" | sha1sum | awk '{ print $1 }')
 
 #echo "Writing PCRs for \"$MENU\" boot entries:"
 for e in $(seq 0 $NUM_ENTRIES); do
+
+	if [ $e -ne $DEFAULT ]; then
+		continue
+	fi
+
 	#echo -n "$e: \"${TITLES[$e]}\""
 	for PCRNUM in ${PCRS[@]}; do
 		AWK_STR="\$1 ~ /${PCRNUM}/ { print \$2 }"
@@ -154,15 +168,20 @@ for e in $(seq 0 $NUM_ENTRIES); do
 		#
 		# Using $TMPFILE as a starting point, continue the chaining process
 
+		# XXX TODO Checkfile support in PCR13
 		case $PCRNUM in
-		#4)
-		#	echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
-		#	#echo "w $PCRNUM $CURR_PCR"
-		#	;;
-		#5)
-		#	echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
-		#	#echo "w $PCRNUM $CURR_PCR"
-		#	;;
+		8)
+			rm ${TMPFILE}
+			dd if=${STAGE2} of=${TMPFILE} bs=1c count=512 >/dev/null 2>&1
+			CURR_PCR=$(tpm-luks-chain-hashes ${TMPFILE})
+			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
+			;;
+		9)
+			rm ${TMPFILE}
+			dd if=${STAGE2} of=${TMPFILE} bs=1c skip=512 >/dev/null 2>&1
+			CURR_PCR=$(tpm-luks-chain-hashes ${TMPFILE})
+			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}
+			;;
 		12)
 			CURR_PCR=$(tpm-luks-chain-hashes -o $TMPFILE -h ${ROOTS[$e]} ${KERNELS[$e]} ${INITRDS[$e]} ${BOOT})
 			echo "r $PCRNUM $CURR_PCR" >> ${OUTFILE}

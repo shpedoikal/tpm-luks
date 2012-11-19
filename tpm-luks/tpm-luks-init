@@ -7,41 +7,43 @@
 #
 #set -x
 CONF=/etc/tpm-luks.conf
-TMPFILE=$(mktemp /tmp/${0##*/}-XXXXXX)
+NVPERMSFILE=$(mktemp /tmp/${0##*/}-XXXXXX)
 
 function cleanup
 {
-	rm -f ${TMPFILE}
+	rm -f ${NVPERMSFILE}
 }
 
 trap cleanup EXIT
 
 DEVICES=( $(cat ${CONF} | awk -F: '! /^#/ {print $1}') )
-SCRIPTS=( $(cat ${CONF} | awk -F: '! /^#/ {print $2}') )
+INDEXES=( $(cat ${CONF} | awk -F: '! /^#/ {print $2}') )
+SCRIPTS=( $(cat ${CONF} | awk -F: '! /^#/ {print $3}') )
 
 NUM_DEVICES=$(( ${#DEVICES[@]} - 1 ))
+NUM_INDEXES=$(( ${#INDEXES[@]} - 1 ))
 NUM_SCRIPTS=$(( ${#SCRIPTS[@]} - 1 ))
 
-if [ $NUM_SCRIPTS -ne $NUM_DEVICES ]; then
+if [ $NUM_SCRIPTS -ne $NUM_DEVICES -o $NUM_DEVICES -ne $NUM_INDEXES ]; then
 	echo "${CONF} parse error" 1>&2
 	exit 1
 fi
 
 for d in $(seq 0 $NUM_DEVICES); do
 	echo "Generating PCR values for ${DEVICES[$d]}..."
-	${SCRIPTS[$d]} -o ${TMPFILE}
+	${SCRIPTS[$d]} -o ${NVPERMSFILE}
 	if [ $? -ne 0 ]; then
 		echo "${SCRIPTS[$d]} has failed. Aborting."
 		exit 2
 	fi
 
 	echo "Creating new TPM NVRAM secret for ${DEVICES[$d]}..."
-	tpm-luks -c -d ${DEVICES[$d]} -p ${TMPFILE}
+	tpm-luks -c -d ${DEVICES[$d]} -i ${INDEXES[$d]} -p ${NVPERMSFILE}
 	if [ $? -ne 0 ]; then
 		echo "tpm-luks has failed. Aborting."
 		exit 3
 	fi
-	rm -f ${TMPFILE}
+	rm -f ${NVPERMSFILE}
 done
 
-exit $?
+exit 0

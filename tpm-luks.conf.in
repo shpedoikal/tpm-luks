@@ -1,18 +1,19 @@
 #
 # tpm-luks.conf - configuration file for tpm-luks PCR use
 #
-# The format of this file is:
-# device: script
+# The format of the entries in this file is:
+# device:index:script
 #
 # device - a LUKS partition
 #
+# index - A TPM NVRAM index used to store the LUKS secret. You can list
+#	  NVRAM indexes with tpm_nvinfo.
+#
 # script - full path to a script that produces a TPM NVRAM permissions file,
 #	   as used by tpm_nvdefine -f. See tpm-luks-gen-tgrub-pcr-values
-#	   for info on the format of this file.
+#	   for info on the format of the script file.
 #
 # example:
 #
-#/dev/sda2: @sbindir@/tpm-luks-gen-tgrub-pcr-values
+#/dev/sda2:1:@sbindir@/tpm-luks-gen-tgrub-pcr-values
 #
-#
-## EOF

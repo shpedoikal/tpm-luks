@@ -6,8 +6,7 @@
 #
 AWK=/bin/awk
 CRYPTSETUP=/sbin/cryptsetup
-NV_INDEX_LIMIT=32
-TPM_LUKS_NVRAM_SIZE=33
+TPM_LUKS_NV_INDEX_LIMIT=128
 
 #set -x
 
@@ -55,7 +54,7 @@ function get_owner_password
 
 function wipe_file
 {
-	dd if=/dev/zero of=${1} bs=1c count=33 >/dev/null 2>&1
+	dd if=/dev/zero of=${1} bs=1c count=${2} >/dev/null 2>&1
 	rm -f ${1}
 }
 
@@ -92,15 +91,17 @@ function tpm_owned
 #
 function find_luks_nv_indexes
 {
-	NV_SIZES=( $(tpm_nvinfo | ${AWK} '$1 ~ /Size/ { print $3 }') )
 	NV_INDEXES=( $(tpm_nvinfo | ${AWK} '$1$2 ~ /NVRAMindex/ { print $4 }') )
 	NUM_INDEXES=$(( ${#NV_INDEXES[@]} - 1 ))
 
 	for i in $(seq 0 ${NUM_INDEXES}); do
-		#echo "DBG: ${NV_SIZES[$i]}"
 		#echo "DBG: ${NV_INDEXES[$i]}"
 
-		if [ ${NV_SIZES[$i]} -eq ${TPM_LUKS_NVRAM_SIZE} ]; then
+		#
+		# By limiting ourselves to indexes < TPM_LUKS_NV_INDEX_LIMIT, we
+		# avoid the manufacturer-set indexes
+		#
+		if [ ${NV_INDEXES[$i]} -lt ${TPM_LUKS_NV_INDEX_LIMIT} ]; then
 			echo -n "${NV_INDEXES[$i]} "
 		fi
 	done
@@ -108,13 +109,13 @@ function find_luks_nv_indexes
 
 function find_free_nv_index
 {
-	# start at index 1, making the default first index to use 2. In,
-	# testing the Atmel TPM threw errors if NV index 1 was used
+	# start at index 1, making the default first index to use 2. In
+	# testing, the Atmel TPM threw errors if NV index 1 was used
 	NV_INDEX=1
 	NV_INDEXES=$(tpm_nvinfo | ${AWK} '$1$2 ~ /NVRAMindex/ { print $4 }')
 
 	for i in ${NV_INDEXES}; do
-		if [ $(( $i )) -gt ${NV_INDEX_LIMIT} ]; then
+		if [ $(( $i )) -gt ${TPM_LUKS_NV_INDEX_LIMIT} ]; then
 			continue
 		fi
 
@@ -131,22 +132,25 @@ function find_luks_device
 	NUM_DEVS=$(blkid -t TYPE=crypto_LUKS|${AWK} -F: '{print $1}'|wc -l)
 
 	if [ $NUM_DEVS -eq 0 ]; then
-		echo "Couldn't find a LUKS mount!"
+		echo "Couldn't find a LUKS device!"
 		exit 10
 	elif [ $NUM_DEVS -gt 1 ]; then
-		echo "Found more than one LUKS mount, specify a device with the -d option"
+		echo "Found more than one LUKS device, specify a device with the -d option"
 		exit 11
 	fi
 
 	DEVICE="$(blkid -t TYPE=crypto_LUKS|${AWK} -F: '{print $1}')"
 	if [ $? -ne 0 ]; then
-		DEVICE=
+		echo "Couldn't find a LUKS device!"
 		exit 12
 	fi
 
 	return 0
 }
 
+#
+# device_get - Set DEVICE, or die trying
+#
 function device_get
 {
 	if [ ! -n "${DEVICE}" ]; then
@@ -155,19 +159,13 @@ function device_get
 }
 
 #
-# keyfile_generate - create a tmpfs mount and write a key with version info
-#		     into a file named "key" on that mount
+# keyfile_generate - put bytes from $RAND_SOURCE into $TMPFS_KEYFILE.
 #
 function keyfile_generate
 {
 	TMPFS_KEYFILE=${TMPFS_MNT}/key
 
-	# write the version bytes (version 0)
-	dd if=/dev/zero of=${TMPFS_KEYFILE} bs=1c count=1 >/dev/null 2>&1 \
-		|| exit 13
-
-	# write a 32 byte symmetric key
-	dd if=${RAND_SOURCE} of=${TMPFS_KEYFILE} bs=1c seek=1 count=32 \
+	dd if=${RAND_SOURCE} of=${TMPFS_KEYFILE} bs=1c count=${KEYFILE_SIZE} \
 		>/dev/null 2>&1 || exit 14
 }
 
@@ -183,10 +181,10 @@ function nv_define_and_write
 	fi
 
 	if [ -n "${PERMSFILE}" ]; then
-		tpm_nvdefine -i ${NVINDEX} -s 33 -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
+		tpm_nvdefine -i ${NVINDEX} -s ${KEYFILE_SIZE} -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
 			-a ${NVPASS} -f ${PERMSFILE} >/dev/null
 	else
-		tpm_nvdefine -i ${NVINDEX} -s 33 -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
+		tpm_nvdefine -i ${NVINDEX} -s ${KEYFILE_SIZE} -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
 			-a ${NVPASS} >/dev/null
 	fi
 
@@ -194,7 +192,7 @@ function nv_define_and_write
 		return 15
 	fi
 
-	tpm_nvwrite -i ${NVINDEX} -s 33 -f ${DATAFILE} --password=${NVPASS}
+	tpm_nvwrite -i ${NVINDEX} -s ${KEYFILE_SIZE} -f ${DATAFILE} --password=${NVPASS}
 	if [ $? -ne 0 ]; then
 		tpm_nvrelease -i ${NVINDEX} --pwdo=${OWNERPASS}
 		return 16
@@ -228,18 +226,23 @@ function luks_add_key
 }
 
 #
-# nv_get - read out a TPM NVRAM area onto a tmpfs mount
+# nv_get - read out a TPM NVRAM area onto a tmpfs mount.
 #
-# exits on failure
+# Sets TMPFS_KEYFILE and KEYFILE_SIZE on success
+#
+# exits the script on failure
 #
 function nv_get
 {
+	ERR_MSG="Couldn't read any indexes from TPM NVRAM"
+
 	get_nv_password
 
 	if [ ! -n "$NVINDEX" ]; then
 		NV_INDEXES=( $(find_luks_nv_indexes) )
 	else
 		NV_INDEXES=( $NVINDEX )
+		ERR_MSG="Couldn't read index $NVINDEX from TPM NVRAM"
 	fi
 
 	if [ ${#NV_INDEXES} -eq 0 ]; then
@@ -249,37 +252,23 @@ function nv_get
 
 	TMPFS_KEYFILE="${TMPFS_MNT}/data.tmp"
 	for i in ${NV_INDEXES[*]}; do
-		tpm_nvread -i $i -s 33 --password=${NVPASS} -f ${TMPFS_KEYFILE} \
-			>/dev/null 2>&1 || continue
+		KEYFILE_SIZE=$(tpm_nvinfo -i $i | ${AWK} '$1 ~ /Size/ { print $3 }')
 
-		# version check
-		od -A n -N 1 -t x1 ${TMPFS_KEYFILE} | grep -q 00 || continue
-		return
+		tpm_nvread -i $i -s ${KEYFILE_SIZE} --password=${NVPASS} -f ${TMPFS_KEYFILE} \
+			>/dev/null 2>&1 && return
 	done
 
-	dd if=/dev/zero of=${TMPFS_KEYFILE} bs=1c count=33 >/dev/null 2>&1
-	echo "Couldn't read any indexes from TPM NVRAM"
+	echo ${ERR_MSG}
+	wipe_file ${TMPFS_KEYFILE} ${KEYFILE_SIZE}
 	exit 18
 }
 
 function luks_open
 {
 	NAME=${1}
-	#TMPFS_MNT=${TMPFS_KEYFILE%/*}
 
-	# copy out all but the version byte to a new file
-	dd if=${TMPFS_KEYFILE} of=${TMPFS_MNT}/data bs=1c skip=1 count=32 >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		echo "dd failed! exiting..."
-		wipe_file ${TMPFS_MNT}/data
-		SCRIPT_RC=19
-		return
-	fi
-
-	$CRYPTSETUP luksOpen ${DEVICE} ${NAME} --key-file ${TMPFS_MNT}/data --keyfile-size 32
+	$CRYPTSETUP luksOpen ${DEVICE} ${NAME} --key-file ${TMPFS_KEYFILE} --keyfile-size ${KEYFILE_SIZE}
 	SCRIPT_RC=$?
-
-	wipe_file ${TMPFS_MNT}/data
 }
 
 #
@@ -291,20 +280,8 @@ function luks_open
 #
 function luks_kill
 {
-	TMPFS_MNT=${TMPFS_KEYFILE%/*}
-	TMPFS_KEY=${TMPFS_MNT}/key
-
-	dd if=${TMPFS_KEYFILE} of=${TMPFS_KEY} bs=1c skip=1 count=32 >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		echo "dd failed! exiting..."
-		wipe_file ${TMPFS_KEY}
-		SCRIPT_RC=20
-		return
-	fi
-
-	$CRYPTSETUP luksKillSlot ${DEVICE} ${KEY_SLOT} --key-file ${TMPFS_KEY} --keyfile-size 32
+	$CRYPTSETUP luksKillSlot ${DEVICE} ${KEY_SLOT} --key-file ${TMPFS_KEYFILE} --keyfile-size ${KEYFILE_SIZE}
 	SCRIPT_RC=$?
-	wipe_file ${TMPFS_KEY}
 }
 
 function usage
@@ -319,6 +296,7 @@ function usage
 	echo -e "  -k                kill a LUKS key slot using a key file read from NVRAM"
 	echo
 	echo "options:"
+	echo -e "  -l <size>         use <size> bytes for a new key (default is 32)"
 	echo -e "  -s <keyslot>      use the specified LUKS key slot (view free slots with "
 	echo -e	"                     'cryptsetup luksDump <device>')"
 	echo -e "  -i <index>        use the specified TPM NVRAM index for the new area (view "
@@ -334,10 +312,11 @@ function usage
 #
 # main()
 #
+KEYFILE_SIZE=32
 NVINDEX=
 ACTION="x"
 
-while getopts "kco:mrw:s:i:d:p:q:h" opt; do
+while getopts "kco:mrw:l:s:i:d:p:q:h" opt; do
 	case $opt in
 	k)
 		[[ "${ACTION}" == "x" ]] && ACTION="kill" || (usage && exit 255)
@@ -358,6 +337,9 @@ while getopts "kco:mrw:s:i:d:p:q:h" opt; do
 	w)
 		[[ "${ACTION}" == "x" ]] && ACTION="write" || (usage && exit 255)
 		TMPFS_KEYFILE=${OPTARG}
+		;;
+	l)
+		KEYFILE_SIZE=${OPTARG}
 		;;
 	s)
 		KEY_SLOT=${OPTARG}
@@ -401,31 +383,36 @@ if [ "${ACTION}" == "create" ]; then
 		exit $RC
 	fi
 
-	# copy out all but the version byte
-	dd if=${TMPFS_KEYFILE} of=${TMPFS_KEYFILE}.data bs=1c skip=1 count=32 \
-		>/dev/null 2>&1
-
-	wipe_file ${TMPFS_KEYFILE}
-	luks_add_key ${TMPFS_KEYFILE}.data
-	wipe_file ${TMPFS_KEYFILE}.data
+	luks_add_key ${TMPFS_KEYFILE}
+	wipe_file ${TMPFS_KEYFILE} ${KEYFILE_SIZE}
 
 	echo "Using NV index ${NVINDEX} for device ${DEVICE}"
 elif [ "${ACTION}" == "open" ]; then
 	device_get
 	nv_get
 	luks_open ${NAME}
-	wipe_file ${TMPFS_KEYFILE}
+	wipe_file ${TMPFS_KEYFILE} ${KEYFILE_SIZE}
 elif [ "${ACTION}" == "migrate" ]; then
 	nv_get
+
+	# clear NVINDEX (source to migrate from) so that find_free_nv_index
+	# will find us a new one
+	OLDNVINDEX=${NVINDEX}
 	NVINDEX=""
 	nv_define_and_write ${PERMSFILE}
+	RC=$?
 
-	wipe_file ${TMPFS_KEYFILE}
+	wipe_file ${TMPFS_KEYFILE} ${KEYFILE_SIZE}
+	if [ $RC -ne 0 ]; then
+		exit $RC
+	fi
+	echo "Successfully migrated index ${OLDNVINDEX} to index ${NVINDEX}"
 elif [ "${ACTION}" == "retrieve" ]; then
 	nv_get
 	echo ${TMPFS_KEYFILE}
 elif [ "${ACTION}" == "write" ]; then
 	prompt_for_new_nvpass
+	KEYFILE_SIZE=$(stat -c "%s" ${TMPFS_KEYFILE})
 	nv_define_and_write ${PERMSFILE}
 elif [ "${ACTION}" == "kill" ]; then
 	if [ ! -n "${KEY_SLOT}" ]; then
@@ -436,7 +423,7 @@ elif [ "${ACTION}" == "kill" ]; then
 	device_get
 	nv_get
 	luks_kill
-	wipe_file ${TMPFS_KEYFILE}
+	wipe_file ${TMPFS_KEYFILE} ${KEYFILE_SIZE}
 else
 	usage
 	exit 1
