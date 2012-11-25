@@ -8,8 +8,6 @@ AWK=/bin/awk
 CRYPTSETUP=/sbin/cryptsetup
 TPM_LUKS_NV_INDEX_LIMIT=128
 
-#set -x
-
 DEVICE=
 TMPFS_MNT=/dev/shm
 TMPFS_KEYFILE=

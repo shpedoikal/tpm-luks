@@ -58,8 +58,6 @@
 #          initramfs
 #
 #
-#set -x
-
 PCRS="4 5 8 9 12 14"
 TMPFILE=
 SOURCE=/sys/kernel/security/tpm0/ascii_bios_measurements

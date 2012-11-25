@@ -5,7 +5,6 @@
 #		 new TPM NVRAM secret for it
 #
 #
-#set -x
 CONF=/etc/tpm-luks.conf
 NVPERMSFILE=$(mktemp /tmp/${0##*/}-XXXXXX)
 
