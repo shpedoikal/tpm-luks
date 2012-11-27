@@ -14,7 +14,7 @@ DEVICE=${1}
 NAME=${2}
 TPM_LUKS_MAX_NV_INDEX=128
 
-set -x
+#set -x
 
 VIABLE_INDEXES=""
 
