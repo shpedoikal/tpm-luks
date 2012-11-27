@@ -14,3 +14,8 @@
 # file matches cannot be used with removes b/c we don't have the info available
 
 kernel:any:@sbindir@/tpm-luks-update
+#
+# since we're not using the distro's grub package, this will never
+# update, but it is part of the root of trust
+#
+#/boot/grub/stage2:any:@sbindir@/tpm-luks-update
