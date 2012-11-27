@@ -205,16 +205,17 @@ function nv_define_and_write
 function luks_add_key
 {
 	KEYFILE=${1}
-	KEY_SLOT=0
 
-	SLOTID=0
-	for S in $(cryptsetup luksDump ${DEVICE} | ${AWK} '$1$2 ~ /KeySlot/ {print $4}'); do
-		if [ "${S}" == "DISABLED" ]; then
-			KEY_SLOT=${SLOTID}
-			break
-		fi
-		SLOTID=$(( ${SLOTID} + 1 ))
-	done
+	if [ ! -n "${KEY_SLOT}" ]; then
+		SLOTID=0
+		for S in $(cryptsetup luksDump ${DEVICE} | ${AWK} '$1$2 ~ /KeySlot/ {print $4}'); do
+			if [ "${S}" == "DISABLED" ]; then
+				KEY_SLOT=${SLOTID}
+				break
+			fi
+			SLOTID=$(( ${SLOTID} + 1 ))
+		done
+	fi
 
 	echo "You will now be prompted to enter any valid LUKS passphrase in order to store"
 	echo -e "the new TPM NVRAM secret in LUKS key slot ${KEY_SLOT}:\n"

@@ -104,8 +104,7 @@ C. If the LUKS volume is your rootfs
 
   II. Fedora 17
 
-	Do these steps manually, since tpm-luks-init uses grubby, which seems to
-	have problems with F17's grub2:
+	Do these steps manually:
 
 	1. Determine your LUKS encrypted partions:
 	 $ blkid -t TYPE=crypto_LUKS
