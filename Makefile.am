@@ -1,4 +1,4 @@
-SUBDIRS = swtpm-utils dracut
+SUBDIRS = swtpm-utils dracut .
 
 if FEDORA17
 plymouthdir=/usr/lib/dracut/modules.d/90crypt-tpm
@@ -40,7 +40,10 @@ dist_yumplugins_SCRIPTS=yum/post-transaction-actions.py
 yumpostactionsdir=/etc/yum/post-actions
 dist_yumpostactions_SCRIPTS=yum/tpm-luks.action
 
-CLEANFILES = yum/tpm-luks.action
+confdir=/etc
+conf_SCRIPTS=tpm-luks.conf
+
+CLEANFILES = yum/tpm-luks.action tpm-luks.conf
 
 yum/tpm-luks.action: yum/tpm-luks.action.in
 	@SED@ -e s!\@sbindir\@!"@sbindir@"!g < $< > $@-t
