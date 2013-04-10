@@ -37,7 +37,7 @@
 #										#
 #################################################################################
 
-AM_CFLAGS = -I/usr/linux/include -Wall -ggdb -Wuninitialized -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -W -DTPM_POSIX -DTPM_V12 -DTPM_NV_DISK -DTPM_AES -DTPM_USE_TAG_IN_STRUCTURE=1 -DTPM_USE_CHARDEV
+AM_CFLAGS = -I/usr/linux/include -I../include -Wall -ggdb -Wuninitialized -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -W -DTPM_POSIX -DTPM_V12 -DTPM_NV_DISK -DTPM_AES -DTPM_USE_TAG_IN_STRUCTURE=1 -DTPM_USE_CHARDEV
 noinst_LTLIBRARIES = libtpm.la
 
 
@@ -62,4 +62,3 @@ libtpm_la_SOURCES = auditing.c bind.c chgauth.c context.c \
 	ticks.c tpmutil.c tpmutil_sock.c tpmutil_tty.c tpmutil_unixio.c \
 	transport.c
 
-noinst_DIST = hmac.h oiaposap.h pcrs.h tpmutil.h

@@ -25,7 +25,7 @@ dist_plymouth_SCRIPTS=dracut/RHEL6/plymouth-tpm/install \
 		      dracut/RHEL6/plymouth-tpm/plymouth-pretrigger.sh
 endif
 
-sbin_SCRIPTS=tpm-luks/tpm-luks-chain-hashes \
+dist_sbin_SCRIPTS=tpm-luks/tpm-luks-chain-hashes \
 	     tpm-luks/tpm-luks \
 	     tpm-luks/tpm-luks-gen-tgrub-pcr-values \
 	     tpm-luks/tpm-luks-update \
@@ -48,6 +48,8 @@ CLEANFILES = yum/tpm-luks.action tpm-luks.conf
 yum/tpm-luks.action: yum/tpm-luks.action.in
 	@SED@ -e s!\@sbindir\@!"@sbindir@"!g < $< > $@-t
 	mv $@-t $@
+
+EXTRA_DIST = tpm-luks.conf.in yum/tpm-luks.action.in
 
 tpm-luks.conf: tpm-luks.conf.in
 	@SED@ -e s!\@sbindir\@!"@sbindir@"!g < $< > $@-t

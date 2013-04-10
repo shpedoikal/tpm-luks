@@ -55,3 +55,19 @@ bin_PROGRAMS = getcapability nv_readvalue
 
 getcapability_SOURCES = getcapability.c
 nv_readvalue_SOURCES = nv_readvalue.c
+
+noinst_HEADERS = \
+	include/hmac.h \
+	include/newserialize.h \
+	include/oiaposap.h \
+	include/pcrs.h \
+	include/tpm.h \
+	include/tpm_constants.h \
+	include/tpm_error.h \
+	include/tpm_lowlevel.h \
+	include/tpm_structures.h \
+	include/tpm_types.h \
+	include/tpmfunc.h \
+	include/tpmkeys.h \
+	include/tpmutil.h
+

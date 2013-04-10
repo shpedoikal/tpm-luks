@@ -1,6 +1,13 @@
+%define dracutlibdir %{_prefix}/lib/dracut
+
+%define dracut_mod_name 90crypt-tpm
+%if 0%{?rhel} >= 6
+%define dracut_mod_name 50plymouth-tpm
+%endif
+
 Name:		@PACKAGE@
 Version:	@VERSION@
-Release:	1%{?dist}
+Release:	2%{?dist}
 Summary:	Utility for storing a LUKS key using a TPM
 
 Group:		Security
@@ -44,13 +51,17 @@ make install DESTDIR=$RPM_BUILD_ROOT
 #%{_sbindir}/gen_pcr_values
 #%{_sbindir}/tpm_luks
 #%{_sbindir}/tpm-luks-update-hook
-%dir /usr/share/dracut/modules.d/50plymouth-tpm
-/usr/share/dracut/modules.d/50plymouth-tpm/*
+%dir %{dracutlibdir}/modules.d/%{dracut_mod_name}
+%{dracutlibdir}/modules.d/%{dracut_mod_name}/*
 %dir /etc/yum/post-actions
 /etc/yum/post-actions/tpm-luks.action
 %config /etc/yum/pluginconf.d/post-transaction-actions.conf
 /usr/lib/yum-plugins/post-transaction-actions.py*
+%config /etc/tpm-luks.action
 
 %changelog
+* Tue Apr 09 2013 Ryan Harper <ryanh@us.ibm.com>
+- Updated to build on F18
+
 * Tue May 29 2012 Kent Yoder <key@linux.vnet.ibm.com>
 - Initial drop of version 0.6
