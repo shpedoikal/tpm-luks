@@ -53,6 +53,7 @@ install() {
     inst "$moddir/crypt-lib.sh" "/lib/dracut-crypt-lib.sh"
     # tpm-luks dependencies
     inst "$moddir"/cryptroot-ask-tpm.sh /sbin/cryptroot-ask-tpm
+    inst "$moddir"/tpm-try-authless-indexes.sh /sbin/tpm-try-authless-indexes
     inst_binary getcapability
     inst_binary awk
     inst_binary od

@@ -1,9 +1,11 @@
-#!/bin/bash -e
+#!/bin/bash
 #
 # package reqs: tpm-tools, trousers
 #
 # Author: Kent Yoder <key@linux.vnet.ibm.com>
 #
+set -x
+
 AWK=/bin/awk
 CRYPTSETUP=/sbin/cryptsetup
 TPM_LUKS_NV_INDEX_LIMIT=128
@@ -16,9 +18,26 @@ OWNERPASS=
 NVPASS=
 KEY_SLOT=
 RAND_SOURCE="/dev/urandom"
+RW_PERMS="AUTHREAD|AUTHWRITE"
+#
+# Do we need a password at tpm_nvdefine time (other than owner)? 1=false, 0=true
+#
+DEFINE_PASS=1
+#
+# Do we need a password at tpm_nvwrite time? 1=false, 0=true
+#
+WRITE_PASS=1
+#
+# Do we have an owner authorized write? 1=false, 0=true
+#
+OWNER_WRITE=1
 
 function prompt_for_new_nvpass
 {
+	if [ ${DEFINE_PASS} -eq 1 -a ${WRITE_PASS} -eq 1 ]; then
+		return
+	fi
+
 	if [ ! -n "${NVPASS}" ]; then
 		read -s -p "Enter a new TPM NV area password: " NVPASS1
 		echo
@@ -44,6 +63,7 @@ function get_nv_password
 
 function get_owner_password
 {
+	# XXX this is the same as -z? TEST
 	if [ ! -n "${OWNERPASS}" ]; then
 		read -s -p "Enter your TPM owner password: " OWNERPASS || exit 3
 		echo
@@ -171,6 +191,9 @@ function nv_define_and_write
 {
 	PERMSFILE=${1}
 	DATAFILE=${TMPFS_KEYFILE}
+	NVPASS_OPTION=
+	OWNERPASS_OPTION="-y"
+	WRITEPASS_OPTION=
 
 	get_owner_password
 
@@ -178,21 +201,41 @@ function nv_define_and_write
 		NVINDEX=$(find_free_nv_index)
 	fi
 
+	if [ ! -z "${NVPASS}" ]; then
+		NVPASS_OPTION="-a ${NVPASS}"
+	fi
+
+	if [ "${OWNERPASS}" != "-y" ]; then
+		OWNERPASS_OPTION="-o ${OWNERPASS}"
+	fi
+
 	if [ -n "${PERMSFILE}" ]; then
-		tpm_nvdefine -i ${NVINDEX} -s ${KEYFILE_SIZE} -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
-			-a ${NVPASS} -f ${PERMSFILE} >/dev/null
+		tpm_nvdefine -i ${NVINDEX} -s ${KEYFILE_SIZE} -p ${RW_PERMS} \
+			${OWNERPASS_OPTION} ${NVPASS_OPTION} -f ${PERMSFILE} >/dev/null
 	else
-		tpm_nvdefine -i ${NVINDEX} -s ${KEYFILE_SIZE} -p 'AUTHREAD|AUTHWRITE' -o ${OWNERPASS} \
-			-a ${NVPASS} >/dev/null
+		tpm_nvdefine -i ${NVINDEX} -s ${KEYFILE_SIZE} -p ${RW_PERMS} \
+			${OWNERPASS_OPTION} ${NVPASS_OPTION} >/dev/null
 	fi
 
 	if [ $? -ne 0 ]; then
 		return 15
 	fi
 
-	tpm_nvwrite -i ${NVINDEX} -s ${KEYFILE_SIZE} -f ${DATAFILE} --password=${NVPASS}
+	# if there's a password required for writing the NV area, determine if its the
+	# owner password, or the NV area password
+	if [ ${OWNER_WRITE} -eq 0 ]; then
+		if [ "${OWNERPASS}" == "-y" ]; then
+			WRITEPASS_OPTION="-z"
+		else
+			WRITEPASS_OPTION="--password=${OWNERPASS}"
+		fi
+	elif [ ${WRITE_PASS} -eq 0 ]; then
+		WRITEPASS_OPTION="--password=${NVPASS}"
+	fi
+
+	tpm_nvwrite -i ${NVINDEX} -s ${KEYFILE_SIZE} -f ${DATAFILE} ${WRITEPASS_OPTION}
 	if [ $? -ne 0 ]; then
-		tpm_nvrelease -i ${NVINDEX} --pwdo=${OWNERPASS}
+		tpm_nvrelease -i ${NVINDEX} ${OWNERPASS_OPTION}
 		return 16
 	fi
 
@@ -302,9 +345,16 @@ function usage
 	echo -e	"                     indexes with tpm_nvinfo)"
 	echo -e "  -d <device>       use the specified LUKS device (view with "
 	echo -e	"                     'blkid -t TYPE=crypto_LUKS')"
-	echo -e	"  -p <nvpermsfile>  use the specified NV permissions file for the new area"
+	echo -e	"  -p <nvpermsfile>  use the specified NV permissions file for the new area. This"
+	echo -e	"                     is the same file you'd pass to tpm_nvdefine -f"
+	echo -e	"  -P <r/w perms>    use the specified NV read/write permissions for the new area."
+	echo -e	"                     Pass the same set of options as you'd pass to tpm_nvdefine -p"
+	echo -e "                     default is AUTHREAD|AUTHWRITE"
 	echo -e	"  -q <file>         use the specified file for the key material source, default"
 	echo -e "                     is /dev/urandom"
+	echo -e	"  -y                use the well known secret (all zeroes) as the owner password."
+	echo -e "                     This will apply both to the NV define and NV write operations"
+	echo -e "                     if they apply."
 	echo -e	"  -h                help"
 }
 
@@ -315,7 +365,7 @@ KEYFILE_SIZE=32
 NVINDEX=
 ACTION="x"
 
-while getopts "kco:mrw:l:s:i:d:p:q:h" opt; do
+while getopts "kco:mrw:l:s:i:d:p:P:q:yh" opt; do
 	case $opt in
 	k)
 		[[ "${ACTION}" == "x" ]] && ACTION="kill" || (usage && exit 255)
@@ -357,8 +407,14 @@ while getopts "kco:mrw:l:s:i:d:p:q:h" opt; do
 			exit 21
 		fi
 		;;
+	P)
+		RW_PERMS=${OPTARG}
+		;;
 	q)
 		RAND_SOURCE=${OPTARG}
+		;;
+	y)
+		OWNERPASS="-y"
 		;;
 	*)
 		usage
@@ -370,6 +426,14 @@ done
 # always check that TPM is enabled and owned
 tpm_enabled
 tpm_owned
+
+# handle the passwords we need to gather
+echo ${RW_PERMS} | grep -qi AUTH
+DEFINE_PASS=$?
+echo ${RW_PERMS} | grep -qi AUTHWRITE
+WRITE_PASS=$?
+echo ${RW_PERMS} | grep -qi OWNER
+OWNER_WRITE=$?
 
 if [ "${ACTION}" == "create" ]; then
 	device_get

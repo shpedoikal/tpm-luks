@@ -13,33 +13,40 @@ AWK=/bin/awk
 DEVICE=${1}
 NAME=${2}
 TPM_LUKS_MAX_NV_INDEX=128
+TPM_NV_PER_AUTHREAD=0x00040000
+TPM_NV_PER_OWNERREAD=0x00020000
+NOAUTH_INDEXES=""
 
-set -x
-
-VIABLE_INDEXES=""
+#set -x
 
 #
 # An index is viable if its composite hash matches current PCR state, or if
 # it doesn't require PCR state at all
 #
+#ALL_INDEXES=$($GETCAP -cap 0xd | ${AWK} -F "= " '$1 ~ /Index/ {print $2 }' | ${AWK} -F "." '{ print $1 }')
 ALL_INDEXES=$($GETCAP -cap 0xd | ${AWK} -F: '$1 ~ /Index/ {print $2 }' | ${AWK} -F= '{ print $1 }')
 for i in $ALL_INDEXES; do
 	MATCH1=$($GETCAP -cap 0x11 -scap $i | ${AWK} -F ": " '$1 ~ /Matches/ { print $2 }')
 	SIZE=$($GETCAP -cap 0x11 -scap $i | ${AWK} -F= '$1 ~ /dataSize/ { print $2 }')
-	if [ -n "${MATCH1}" -a "${MATCH1}" = "Yes" ]; then
-		# Add this index at the beginning, since its especially likely to be
-		# the index we're looking for
-		VIABLE_INDEXES="$i $VIABLE_INDEXES"
-		echo "PCR composite matches for index: $i"
+	AUTH_BITS=0x$($GETCAP -cap 0x11 -scap $i | ${AWK} '$1 ~ /Result/ { print $11 }')
+	if [ $i -gt ${TPM_LUKS_MAX_NV_INDEX} ]; then
 		continue
-	elif [ $i -gt ${TPM_LUKS_MAX_NV_INDEX} ]; then
-		continue
-	fi
+	else
+		AUTHREAD=$(( ${AUTH_BITS} & ${TPM_NV_PER_AUTHREAD} ))
+		OWNERREAD=$(( ${AUTH_BITS} & ${TPM_NV_PER_OWNERREAD} ))
 
-	# Add this index at the end of the list
-	VIABLE_INDEXES="$VIABLE_INDEXES $i"
-	echo "Viable index: $i"
+		if [ ${AUTHREAD} -eq 0 -a ${OWNERREAD} -eq 0 ];then
+			NOAUTH_INDEXES="$i $NOAUTH_INDEXES"
+			echo "No auth index: $i"
+			continue
+		fi
+	fi
 done
+
+if [ -z "${NOAUTH_INDEXES}" ]; then
+	echo "No TPM authless indexes found"
+	exit 255
+fi
 
 TMPFS_MNT=/tmp/cryptroot-mnt
 if [ ! -d ${TMPFS_MNT} ]; then
@@ -52,30 +59,15 @@ if [ $? -ne 0 ]; then
 	exit 255
 fi
 
-# plymouth feeds in this password for us
-if [ ! -n "${NVPASS}" ]; then
-       read NVPASS
-fi
-
 KEYFILE=${TMPFS_MNT}/key
 
-for NVINDEX in $VIABLE_INDEXES; do
+for NVINDEX in $NOAUTH_INDEXES; do
 	NVSIZE=$($GETCAP -cap 0x11 -scap ${NVINDEX} | ${AWK} -F= '$1 ~ /dataSize/ { print $2 }')
 
-	$TPM_NVREAD -ix ${NVINDEX} -pwdd ${NVPASS} \
-		-sz ${NVSIZE} -of ${KEYFILE} >/dev/null 2>&1
+	$TPM_NVREAD -ix ${NVINDEX} -sz ${NVSIZE} -of ${KEYFILE} >/dev/null 2>&1
 	RC=$?
-	if [ ${RC} -eq 1 ]; then
-		echo "TPM NV index ${NVINDEX}: Bad password."
-		continue
-	elif [ ${RC} -eq 24 ]; then
-		echo "TPM NV index ${NVINDEX}: PCR mismatch."
-		continue
-	elif [ ${RC} -eq 2 ]; then
-		echo "TPM NV index ${NVINDEX}: Invalid NVRAM Index."
-		continue
-	elif [ ${RC} -ne 0 ]; then
-		echo "TPM NV index ${NVINDEX}: Unknown error (${RC})"
+	if [ ${RC} -ne 0 ]; then
+		echo "No auth TPM NV index ${NVINDEX}: error (${RC})"
 		continue
 	fi
 
@@ -98,3 +90,4 @@ done
 echo "Unable to unlock an NVRAM area."
 ${UMOUNT} ${TMPFS_MNT}
 exit 255
+
