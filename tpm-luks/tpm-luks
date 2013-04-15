@@ -56,7 +56,7 @@ function prompt_for_new_nvpass
 function get_nv_password
 {
 	if [ ! -n "${NVPASS}" ]; then
-		read -s -p "Enter your current TPM NVRAM password: " NVPASS || exit 2
+		read -s -p "$1" NVPASS || exit 2
 		echo
 	fi
 }
@@ -278,8 +278,6 @@ function nv_get
 {
 	ERR_MSG="Couldn't read any indexes from TPM NVRAM"
 
-	get_nv_password
-
 	if [ ! -n "$NVINDEX" ]; then
 		NV_INDEXES=( $(find_luks_nv_indexes) )
 	else
@@ -295,9 +293,22 @@ function nv_get
 	TMPFS_KEYFILE="${TMPFS_MNT}/data.tmp"
 	for i in ${NV_INDEXES[*]}; do
 		KEYFILE_SIZE=$(tpm_nvinfo -i $i | ${AWK} '$1 ~ /Size/ { print $3 }')
+		PERMS=$(tpm_nvinfo -i $i | ${AWK} '$1 ~ /Permissions/ { print $4 }' | grep -i read)
 
-		tpm_nvread -i $i -s ${KEYFILE_SIZE} --password=${NVPASS} -f ${TMPFS_KEYFILE} \
-			>/dev/null 2>&1 && return
+		if [ -z "${PERMS}" ]; then
+			tpm_nvread -i $i -s ${KEYFILE_SIZE} \
+				-f ${TMPFS_KEYFILE} >/dev/null 2>&1 && return
+		else
+			if [ "${OWNERPASS}" == "-y" ]; then
+				tpm_nvread -i $i -s ${KEYFILE_SIZE} -z \
+					-f ${TMPFS_KEYFILE} >/dev/null 2>&1 && return
+			else
+				get_nv_password "Enter your TPM NVRAM password for index $i: "
+
+				tpm_nvread -i $i -s ${KEYFILE_SIZE} --password=${NVPASS} \
+					-f ${TMPFS_KEYFILE} >/dev/null 2>&1 && return
+			fi
+		fi
 	done
 
 	echo ${ERR_MSG}
@@ -354,7 +365,7 @@ function usage
 	echo -e "                     is /dev/urandom"
 	echo -e	"  -y                use the well known secret (all zeroes) as the owner password."
 	echo -e "                     This will apply both to the NV define and NV write operations"
-	echo -e "                     if they apply."
+	echo -e "                     if they apply, as well as NV read."
 	echo -e	"  -h                help"
 }
 
