@@ -339,7 +339,7 @@ function luks_kill
 
 function usage
 {
-	echo "usage ${0##*/}: [-c|-o|-m|-r|-w|-k] [options]"
+	echo "usage ${0##*/}: [-c|-o|-m|-r|-w|-k|-a] [options]"
 	echo -e "  -c                create a new key, store it in TPM NVRAM and add it to a"
 	echo -e	"                     LUKS keyslot"
 	echo -e "  -o <name>         get a secret from TPM NVRAM and use it to open a LUKS device"
@@ -347,6 +347,7 @@ function usage
 	echo -e "  -r                retrieve NVRAM data and write to a tmpfs file"
 	echo -e "  -w <file>         write file to NVRAM"
 	echo -e "  -k                kill a LUKS key slot using a key file read from NVRAM"
+	echo -e "  -a                add a key to a LUKS key slot using a key file read from NVRAM"
 	echo
 	echo "options:"
 	echo -e "  -l <size>         use <size> bytes for a new key (default is 32)"
@@ -376,7 +377,7 @@ KEYFILE_SIZE=32
 NVINDEX=
 ACTION="x"
 
-while getopts "kco:mrw:l:s:i:d:p:P:q:yh" opt; do
+while getopts "kcao:mrw:l:s:i:d:p:P:q:yh" opt; do
 	case $opt in
 	k)
 		[[ "${ACTION}" == "x" ]] && ACTION="kill" || (usage && exit 255)
@@ -397,6 +398,9 @@ while getopts "kco:mrw:l:s:i:d:p:P:q:yh" opt; do
 	w)
 		[[ "${ACTION}" == "x" ]] && ACTION="write" || (usage && exit 255)
 		TMPFS_KEYFILE=${OPTARG}
+		;;
+	a)
+		[[ "${ACTION}" == "x" ]] && ACTION="add" || (usage && exit 255)
 		;;
 	l)
 		KEYFILE_SIZE=${OPTARG}
@@ -497,6 +501,11 @@ elif [ "${ACTION}" == "kill" ]; then
 	device_get
 	nv_get
 	luks_kill
+	wipe_file ${TMPFS_KEYFILE} ${KEYFILE_SIZE}
+elif [ "${ACTION}" == "add" ]; then
+	nv_get
+	device_get
+	luks_add_key ${TMPFS_KEYFILE}
 	wipe_file ${TMPFS_KEYFILE} ${KEYFILE_SIZE}
 else
 	usage
