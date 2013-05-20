@@ -151,7 +151,7 @@ D. Sealing your NVRAM area to PCR state
 	install TrustedGrUB, available from http://sourceforge.net/projects/trustedgrub/.
 	A vanilla install of TrustedGrUB doesn't appear to work with Fedora 17 -- if
 	you get TrustedGrUB working with recent fedora distros, please send a note
-	to trousers-users@lists.sf.net or key@linux.vnet.ibm.com.
+	to trousers-users@lists.sf.net or shpedoikal@gmail.com.
 
 	Note that trustedgrub is supported 32bit only, so you'll need for example
 	the glibc-devel.i686 and libgcc.i686 packages to build it on x86_64.

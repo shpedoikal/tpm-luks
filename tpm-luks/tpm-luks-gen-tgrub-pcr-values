@@ -6,7 +6,7 @@
 # to seal a system state to. Based on the implementation of the trustedgrub
 # package at http://trustedgrub.sf.net.
 #
-# Author: Kent Yoder <key@linux.vnet.ibm.com>
+# Author: Kent Yoder <shpedoikal@gmail.com>
 #
 ####
 # NVRAM permissions file format:
